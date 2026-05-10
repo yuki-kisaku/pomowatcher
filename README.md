@@ -1,0 +1,87 @@
+# pomowatcher
+
+Ubuntu 用の自動ポモドーロタイマー。**作業時間を自動検知して 50 分経過したら通知する** デスクトップ常駐アプリ。
+
+タイマーボタンを押す手間がいらない。GNOME パネルにアイコンが出て、進捗を可視化する。
+
+## 機能
+
+- 入力デバイス（キーボード・マウス）の活動から「作業中」を判定
+- 50 分連続で作業すると `notify-send` でデスクトップ通知
+- 10 分以上アイドルだと自動でタイマーリセット
+- パネルアイコン: `○ → ◔ → ◑ → ◕ → ●` で進捗表示
+- クリックでポップアップ（残り時間・リセット・一時停止）
+
+## 動作環境
+
+- Ubuntu 24.04 LTS 以降（GNOME, Wayland）
+- Python 3.10+
+- 物理キーボード・マウスが `/dev/input/event*` に出ていること
+
+## 依存パッケージ
+
+```bash
+sudo apt install python3-gi gir1.2-gtk-3.0 \
+  gir1.2-ayatanaappindicator3-0.1 python3-evdev libnotify-bin
+```
+
+## インストール
+
+```bash
+git clone <このリポジトリ> ~/ai-dev/pomowatcher
+cd ~/ai-dev/pomowatcher
+./install.sh
+sudo usermod -aG input $USER   # 初回のみ
+sudo reboot                    # グループ反映＆udev反映
+```
+
+`install.sh` がやること:
+- `pomowatcher.py` / `pomowatcher.service` を `~/.local/bin/` と `~/.config/systemd/user/` にシンボリックリンク
+- `99-pomowatcher.rules` を `/etc/udev/rules.d/` にコピー（input デバイスへの uaccess 付与）
+- systemd ユーザーサービスを enable + start
+
+## 更新
+
+```bash
+cd ~/ai-dev/pomowatcher
+git pull
+systemctl --user restart pomowatcher
+```
+
+`install.sh` を再実行する必要はない（リンクなので自動反映）。`pomowatcher.service` や udev ルールが変わったときだけ再実行。
+
+## アンインストール
+
+```bash
+systemctl --user disable --now pomowatcher
+rm ~/.local/bin/pomowatcher.py ~/.config/systemd/user/pomowatcher.service
+sudo rm /etc/udev/rules.d/99-pomowatcher.rules
+```
+
+## 設定（しきい値）
+
+`pomowatcher.py` 冒頭の定数を直接編集:
+
+```python
+WORK_THRESHOLD_SEC  = 50 * 60   # 通知までの作業時間
+IDLE_THRESHOLD_SEC  = 10 * 60   # 休憩とみなすアイドル時間
+CHECK_INTERVAL_SEC  = 30        # チェック周期
+ACTIVE_LIMIT_MS     = 30 * 1000 # 「離席中」と判定するアイドルしきい値
+```
+
+## アーキテクチャ
+
+```
+pomowatcher.py
+├─ evdev で /dev/input/event* を監視（バックグラウンドスレッド）
+│   ↳ 物理デバイスからの入力イベントごとに last_input_time を更新
+├─ 30秒ごとに tick: idle時間 = monotonic - last_input_time
+│   ↳ active なら active_seconds += 30
+│   ↳ 50分到達で notify-send → リセット
+│   ↳ 10分以上 idle で「休憩検知」→ リセット
+└─ GTK + AyatanaAppIndicator3 でパネルとポップアップを描画
+```
+
+### なぜ Mutter IdleMonitor を使わないのか
+
+GNOME 標準の `org.gnome.Mutter.IdleMonitor` は `keyd`（キーリマッパー）の仮想ポインタが生成するイベントで常にリセットされてしまうため、`keyd` 環境下では使い物にならない。物理デバイスを evdev で直読みすることで回避している。

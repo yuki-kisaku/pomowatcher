@@ -1,0 +1,12 @@
+[Unit]
+Description=Pomodoro Work Time Watcher
+After=graphical-session.target
+
+[Service]
+ExecStart=/usr/bin/python3 /home/yuki/.local/bin/pomowatcher.py
+Restart=on-failure
+RestartSec=10
+Environment=DISPLAY=:0
+
+[Install]
+WantedBy=default.target
