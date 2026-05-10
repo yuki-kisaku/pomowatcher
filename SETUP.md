@@ -1,7 +1,32 @@
 # 隔離PC セットアップ手順（Claude Code 向け）
 
-このファイルを読んで、書いてあるとおりに実行してほしい。
-passwordless sudo は設定済みの前提で進む。詰まったら理由を述べて止まってよい。
+このファイルを読んで実行してほしい。ただし**全部をいちからやるのではなく、まず現状を確認して、まだ終わっていない手順だけを実施すること**。
+
+## 最初にやること: 現状確認
+
+以下のコマンドで現在の状態を把握してから作業に入る:
+
+```bash
+# GNOME デスクトップが入っているか
+dpkg -l ubuntu-desktop-minimal 2>/dev/null | grep -E "^ii" && echo "✓ 入っている" || echo "✗ 未インストール"
+
+# 自動ログインが設定されているか
+grep -E "AutomaticLoginEnable|AutomaticLogin" /etc/gdm3/custom.conf 2>/dev/null || echo "✗ 未設定"
+
+# 依存パッケージが揃っているか
+python3 -c "import gi, evdev; print('✓ OK')" 2>/dev/null || echo "✗ 不足あり"
+
+# リポジトリが clone 済みか
+ls ~/ai-dev/pomowatcher/pomowatcher.py 2>/dev/null && echo "✓ clone済み" || echo "✗ 未clone"
+
+# サービスが動いているか
+systemctl --user is-active pomowatcher 2>/dev/null || echo "✗ 未起動"
+
+# input グループに入っているか
+id | grep -q input && echo "✓ input グループあり" || echo "✗ input グループなし"
+```
+
+確認できたら、まだ `✗` になっている手順だけ以下から選んで実行する。passwordless sudo は設定済みの前提。詰まったら理由を述べて止まってよい。
 
 ---
 
