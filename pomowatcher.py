@@ -105,7 +105,7 @@ class PomoWatcher:
         self.active_seconds = 0
         self.paused = False
         self.was_on_break = True
-        self.notified_break = False  # 50分通知済みフラグ
+        self.awaiting_break = False  # 50分到達後、10分アイドルになるまで True
         self.window_start = None  # 現在のウィンドウの開始時刻（monotonic）
 
         self.indicator = self._build_indicator()
@@ -153,7 +153,7 @@ class PomoWatcher:
         if self.paused:
             self.indicator.set_label("❚❚ Paused", "❚❚ Paused")
             return
-        if self.notified_break:
+        if self.awaiting_break:
             self.indicator.set_label("Take a break!!", "Take a break!!")
             return
         elapsed = self._display_elapsed()
@@ -165,11 +165,15 @@ class PomoWatcher:
     # --- タイマー ---
 
     def _refresh_indicator(self) -> bool:
-        if self.was_on_break and not self.paused and get_idle_ms() <= ACTIVE_LIMIT_MS:
+        if (
+            self.was_on_break
+            and not self.paused
+            and not self.awaiting_break
+            and get_idle_ms() <= ACTIVE_LIMIT_MS
+        ):
             logging.info("作業再開を検知（即時）")
             on_work_start()
             self.was_on_break = False
-            self.notified_break = False
             self.window_start = time.monotonic()
         self._update_indicator()
         return True
@@ -187,7 +191,7 @@ class PomoWatcher:
         self.active_seconds = 0
         self.window_start = time.monotonic()
         self.was_on_break = False
-        self.notified_break = False
+        self.awaiting_break = False
         self.pause_menu_item.set_label("停止")
         self._update_indicator()
         logging.info("リセット")
@@ -206,14 +210,24 @@ class PomoWatcher:
 
         idle_ms = get_idle_ms()
         is_idle = idle_ms > ACTIVE_LIMIT_MS
+        idle_sec = idle_ms // 1000
         logging.info(f"idle_ms={idle_ms}, is_idle={is_idle}")
+
+        if self.awaiting_break:
+            if idle_sec >= IDLE_THRESHOLD_SEC:
+                logging.info(f"休憩完了（{idle_sec // 60}分{idle_sec % 60}秒アイドル）")
+                on_break_detected()
+                self.active_seconds = 0
+                self.was_on_break = True
+                self.awaiting_break = False
+            self._update_indicator()
+            return True
 
         if not is_idle:
             if self.was_on_break:
                 logging.info("作業再開を検知")
                 on_work_start()
                 self.was_on_break = False
-                self.notified_break = False
 
             self.active_seconds += CHECK_INTERVAL_SEC
             self.window_start = time.monotonic()
@@ -222,12 +236,9 @@ class PomoWatcher:
             if self.active_seconds >= WORK_THRESHOLD_SEC:
                 logging.info("50分到達！通知送信")
                 on_50min_reached()
-                self.active_seconds = 0
-                self.was_on_break = True
-                self.notified_break = True
+                self.awaiting_break = True
 
         else:
-            idle_sec = idle_ms // 1000
             if idle_sec >= IDLE_THRESHOLD_SEC and not self.was_on_break:
                 logging.info(f"休憩検知（{idle_sec // 60}分{idle_sec % 60}秒アイドル）→ リセット")
                 on_break_detected()
