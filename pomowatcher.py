@@ -105,6 +105,7 @@ class PomoWatcher:
         self.active_seconds = 0
         self.paused = False
         self.was_on_break = True
+        self.notified_break = False  # 50分通知済みフラグ
         self.window_start = None  # 現在のウィンドウの開始時刻（monotonic）
 
         self.indicator = self._build_indicator()
@@ -124,7 +125,7 @@ class PomoWatcher:
             AppIndicator3.IndicatorCategory.APPLICATION_STATUS,
         )
         indicator.set_status(AppIndicator3.IndicatorStatus.ACTIVE)
-        indicator.set_label("○ Working", "○ Working")
+        indicator.set_label(f"○ {WORK_THRESHOLD_SEC // 60}:00", f"○ {WORK_THRESHOLD_SEC // 60}:00")
 
         menu = Gtk.Menu()
 
@@ -141,8 +142,18 @@ class PomoWatcher:
         ratio = min(1.0, self.active_seconds / WORK_THRESHOLD_SEC)
         return icons[int(ratio * (len(icons) - 1))]
 
-    def _set_indicator_label(self, text: str):
-        self.indicator.set_label(text, text)
+    def _update_indicator(self):
+        if self.paused:
+            self.indicator.set_label("❚❚ Paused", "❚❚ Paused")
+            return
+        if self.notified_break:
+            self.indicator.set_label("Take a break!!", "Take a break!!")
+            return
+        elapsed = self._display_elapsed()
+        remaining = max(0, WORK_THRESHOLD_SEC - elapsed)
+        mins, secs = divmod(int(remaining), 60)
+        label = f"{self._progress_icon()} {mins:02d}:{secs:02d}"
+        self.indicator.set_label(label, label)
 
     # --- ポップアップウィンドウ ---
 
@@ -188,6 +199,7 @@ class PomoWatcher:
         self.window.present()
 
     def _refresh_window(self) -> bool:
+        self._update_indicator()
         self._update_window()
         return True
 
@@ -213,18 +225,15 @@ class PomoWatcher:
         self.active_seconds = 0
         self.window_start = time.monotonic()
         self.was_on_break = False
-        self._set_indicator_label(f"{self._progress_icon()} Working")
+        self.notified_break = False
+        self._update_indicator()
         self._update_window()
         logging.info("リセット")
 
     def _on_pause_toggle(self, *_):
         self.paused = not self.paused
-        if self.paused:
-            self._set_indicator_label("❚❚ Paused")
-            logging.info("一時停止")
-        else:
-            self._set_indicator_label(f"{self._progress_icon()} Working")
-            logging.info("再開")
+        logging.info("一時停止" if self.paused else "再開")
+        self._update_indicator()
         self._update_window()
 
     # --- 定期チェック ---
@@ -242,6 +251,7 @@ class PomoWatcher:
                 logging.info("作業再開を検知")
                 on_work_start()
                 self.was_on_break = False
+                self.notified_break = False
 
             self.active_seconds += CHECK_INTERVAL_SEC
             self.window_start = time.monotonic()
@@ -250,11 +260,9 @@ class PomoWatcher:
             if self.active_seconds >= WORK_THRESHOLD_SEC:
                 logging.info("50分到達！通知送信")
                 on_50min_reached()
-                self._set_indicator_label("█ Take a break")
                 self.active_seconds = 0
                 self.was_on_break = True
-            else:
-                self._set_indicator_label(f"{self._progress_icon()} Working")
+                self.notified_break = True
 
         else:
             idle_sec = idle_ms // 1000
@@ -263,8 +271,8 @@ class PomoWatcher:
                 on_break_detected()
                 self.active_seconds = 0
                 self.was_on_break = True
-                self._set_indicator_label(f"{self._progress_icon()} Working")
 
+        self._update_indicator()
         self._update_window()
 
         return True
