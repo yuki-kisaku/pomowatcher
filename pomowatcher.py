@@ -109,11 +109,10 @@ class PomoWatcher:
         self.window_start = None  # 現在のウィンドウの開始時刻（monotonic）
 
         self.indicator = self._build_indicator()
-        self.window, self.progress_bar, self.time_label, self.pause_btn = self._build_window()
 
         GLib.timeout_add(500, self._tick_once)  # 起動0.5秒後に1回だけ実行
         GLib.timeout_add_seconds(CHECK_INTERVAL_SEC, self._tick)
-        GLib.timeout_add_seconds(1, self._refresh_window)
+        GLib.timeout_add_seconds(1, self._refresh_indicator)
         logging.info("pomowatcher 開始")
 
     # --- トレイアイコン ---
@@ -129,9 +128,17 @@ class PomoWatcher:
 
         menu = Gtk.Menu()
 
-        show_item = Gtk.MenuItem(label="開く")
-        show_item.connect("activate", self._show_window)
-        menu.append(show_item)
+        reset_item = Gtk.MenuItem(label="リセット")
+        reset_item.connect("activate", self._on_reset)
+        menu.append(reset_item)
+
+        self.pause_menu_item = Gtk.MenuItem(label="停止")
+        self.pause_menu_item.connect("activate", self._on_pause_toggle)
+        menu.append(self.pause_menu_item)
+
+        quit_item = Gtk.MenuItem(label="終了")
+        quit_item.connect("activate", lambda *_: Gtk.main_quit())
+        menu.append(quit_item)
 
         menu.show_all()
         indicator.set_menu(menu)
@@ -155,50 +162,9 @@ class PomoWatcher:
         label = f"{self._progress_icon()} {mins:02d}:{secs:02d}"
         self.indicator.set_label(label, label)
 
-    # --- ポップアップウィンドウ ---
+    # --- タイマー ---
 
-    def _build_window(self):
-        win = Gtk.Window(title="Pomodoro Watcher")
-        win.set_default_size(300, 140)
-        win.set_resizable(False)
-        win.set_keep_above(True)
-        win.connect("delete-event", lambda w, e: w.hide() or True)
-
-        vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-        vbox.set_margin_top(16)
-        vbox.set_margin_bottom(16)
-        vbox.set_margin_start(20)
-        vbox.set_margin_end(20)
-
-        progress = Gtk.ProgressBar()
-        progress.set_show_text(False)
-        vbox.pack_start(progress, False, False, 0)
-
-        time_lbl = Gtk.Label(label="残り 50:00")
-        vbox.pack_start(time_lbl, False, False, 0)
-
-        btn_box = Gtk.Box(spacing=8)
-        btn_box.set_halign(Gtk.Align.CENTER)
-
-        reset_btn = Gtk.Button(label="リセット")
-        reset_btn.connect("clicked", self._on_reset)
-        btn_box.pack_start(reset_btn, False, False, 0)
-
-        pause_btn = Gtk.Button(label="一時停止")
-        pause_btn.connect("clicked", self._on_pause_toggle)
-        btn_box.pack_start(pause_btn, False, False, 0)
-
-        vbox.pack_start(btn_box, False, False, 0)
-        win.add(vbox)
-
-        return win, progress, time_lbl, pause_btn
-
-    def _show_window(self, *_):
-        self._update_window()
-        self.window.show_all()
-        self.window.present()
-
-    def _refresh_window(self) -> bool:
+    def _refresh_indicator(self) -> bool:
         if self.was_on_break and not self.paused and get_idle_ms() <= ACTIVE_LIMIT_MS:
             logging.info("作業再開を検知（即時）")
             on_work_start()
@@ -206,7 +172,6 @@ class PomoWatcher:
             self.notified_break = False
             self.window_start = time.monotonic()
         self._update_indicator()
-        self._update_window()
         return True
 
     def _display_elapsed(self) -> float:
@@ -216,31 +181,22 @@ class PomoWatcher:
             elapsed += min(time.monotonic() - self.window_start, CHECK_INTERVAL_SEC)
         return elapsed
 
-    def _update_window(self):
-        elapsed = self._display_elapsed()
-        remaining = max(0, WORK_THRESHOLD_SEC - elapsed)
-        fraction = min(1.0, elapsed / WORK_THRESHOLD_SEC)
-        mins, secs = divmod(int(remaining), 60)
-        self.progress_bar.set_fraction(fraction)
-        self.time_label.set_text(f"残り {mins:02d}:{secs:02d}")
-        self.pause_btn.set_label("再開" if self.paused else "一時停止")
-
-    # --- ボタンハンドラ ---
+    # --- メニューハンドラ ---
 
     def _on_reset(self, *_):
         self.active_seconds = 0
         self.window_start = time.monotonic()
         self.was_on_break = False
         self.notified_break = False
+        self.pause_menu_item.set_label("停止")
         self._update_indicator()
-        self._update_window()
         logging.info("リセット")
 
     def _on_pause_toggle(self, *_):
         self.paused = not self.paused
+        self.pause_menu_item.set_label("再開" if self.paused else "停止")
         logging.info("一時停止" if self.paused else "再開")
         self._update_indicator()
-        self._update_window()
 
     # --- 定期チェック ---
 
@@ -279,7 +235,6 @@ class PomoWatcher:
                 self.was_on_break = True
 
         self._update_indicator()
-        self._update_window()
 
         return True
 
