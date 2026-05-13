@@ -199,6 +199,12 @@ class PomoWatcher:
         self.window.present()
 
     def _refresh_window(self) -> bool:
+        if self.was_on_break and not self.paused and get_idle_ms() <= ACTIVE_LIMIT_MS:
+            logging.info("作業再開を検知（即時）")
+            on_work_start()
+            self.was_on_break = False
+            self.notified_break = False
+            self.window_start = time.monotonic()
         self._update_indicator()
         self._update_window()
         return True
