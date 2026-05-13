@@ -43,22 +43,32 @@ _input_lock = threading.Lock()
 
 
 def _physical_devices():
-    """Phys が空でない（仮想でない）入力デバイスのパスを返す"""
+    """キーボード・マウス相当の物理デバイスのパスを返す。
+    仮想デバイス（Phys が空）とオーディオ SW デバイス（EV_KEY/EV_REL なし）を除外する。
+    """
+    EV_KEY = 1 << 1
+    EV_REL = 1 << 2
+
     devices = []
     current_phys = None
     current_handlers = []
+    current_ev = 0
     for line in open("/proc/bus/input/devices"):
         line = line.strip()
         if line.startswith("P:"):
             current_phys = line.split("=", 1)[1].strip()
         elif line.startswith("H:"):
             current_handlers = line.split("=", 1)[1].split()
-        elif line == "" and current_phys:
-            for h in current_handlers:
-                if h.startswith("event"):
-                    devices.append(f"/dev/input/{h}")
+        elif line.startswith("B:") and "EV=" in line:
+            current_ev = int(line.split("=")[1], 16)
+        elif line == "":
+            if current_phys and (current_ev & (EV_KEY | EV_REL)):
+                for h in current_handlers:
+                    if h.startswith("event"):
+                        devices.append(f"/dev/input/{h}")
             current_phys = None
             current_handlers = []
+            current_ev = 0
     return devices
 
 
