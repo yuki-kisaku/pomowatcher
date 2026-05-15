@@ -37,7 +37,7 @@ def on_50min_reached():
     try:
         subprocess.run([
             "canberra-gtk-play",
-            "-f", "/usr/share/sounds/freedesktop/stereo/complete.oga",
+            "-f", "/usr/share/sounds/freedesktop/stereo/alarm-clock-elapsed.oga",
         ], check=False)
     except FileNotFoundError:
         logging.warning("効果音を再生できません: canberra-gtk-play が見つかりません")
