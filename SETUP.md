@@ -56,7 +56,8 @@ sudo apt install -y \
   gir1.2-gtk-3.0 \
   gir1.2-ayatanaappindicator3-0.1 \
   python3-evdev \
-  libnotify-bin
+  libnotify-bin \
+  libcanberra-gtk3-bin
 ```
 
 ---

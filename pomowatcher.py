@@ -34,6 +34,13 @@ def on_50min_reached():
         "notify-send", "--urgency=normal",
         "作業50分経過", "そろそろ休憩しましょう！",
     ])
+    try:
+        subprocess.run([
+            "canberra-gtk-play",
+            "-f", "/usr/share/sounds/freedesktop/stereo/complete.oga",
+        ], check=False)
+    except FileNotFoundError:
+        logging.warning("効果音を再生できません: canberra-gtk-play が見つかりません")
 
 
 # --- 物理デバイス監視によるアイドル検知 ---

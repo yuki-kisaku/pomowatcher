@@ -7,7 +7,7 @@ Ubuntu 用の自動ポモドーロタイマー。**作業時間を自動検知�
 ## 機能
 
 - 入力デバイス（キーボード・マウス）の活動から「作業中」を判定
-- 50 分連続で作業すると `notify-send` でデスクトップ通知
+- 50 分連続で作業すると `notify-send` でデスクトップ通知し、休憩を促す音を鳴らす
 - 通知後はパネルに `Take a break!!` を表示し、**10 分以上アイドルになるまで表示し続ける**（作業を続けてもタイマーは再スタートしない）
 - 10 分以上アイドルになると休憩完了とみなして次の作業サイクルへ移行
 - 作業中に 10 分以上アイドルになると自動でタイマーリセット
@@ -24,7 +24,7 @@ Ubuntu 用の自動ポモドーロタイマー。**作業時間を自動検知�
 
 ```bash
 sudo apt install python3-gi gir1.2-gtk-3.0 \
-  gir1.2-ayatanaappindicator3-0.1 python3-evdev libnotify-bin
+  gir1.2-ayatanaappindicator3-0.1 python3-evdev libnotify-bin libcanberra-gtk3-bin
 ```
 
 ## インストール
@@ -79,7 +79,7 @@ pomowatcher.py
 │   ↳ 物理デバイスからの入力イベントごとに last_input_time を更新
 ├─ 30秒ごとに tick: idle時間 = monotonic - last_input_time
 │   ↳ active なら active_seconds += 30
-│   ↳ 50分到達で notify-send → awaiting_break 状態に入り Take a break!! を表示
+│   ↳ 50分到達で notify-send + 効果音 → awaiting_break 状態に入り Take a break!! を表示
 │   ↳ awaiting_break 中は 10分アイドルで始めて休憩完了 → タイマーリセット
 │   ↳ 作業中に 10分以上 idle で「休憩検知」→ リセット
 └─ GTK + AyatanaAppIndicator3 でパネルとポップアップを描画
