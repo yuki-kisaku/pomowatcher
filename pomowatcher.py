@@ -21,7 +21,7 @@ ACTIVE_LIMIT_MS     = 30 * 1000
 
 # 作業中 BGM（mp3 / ogg / flac など mpv が読める形式）
 # ファイルが存在しない場合は何も再生しない
-BGM_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sounds", "pomodoro.mp3")
+BGM_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "music", "pomodoro-bgm")
 
 logging.basicConfig(stream=sys.stdout, level=logging.INFO,
                     format="%(asctime)s %(message)s", datefmt="%H:%M:%S")
