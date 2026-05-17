@@ -62,14 +62,15 @@ sudo rm /etc/udev/rules.d/99-pomowatcher.rules
 
 ## BGM（作業中に好きな音楽を流す）
 
-`mpv` で読める音声ファイル（mp3 / ogg / flac など）を `music/pomodoro-bgm` に置くと、作業中に自動でループ再生されます。
+`mpv` で読める音声ファイル（mp3 / ogg / flac など）を `~/Music/pomodoro-bgm` に置くと、作業中に自動でループ再生されます。
+`~/Music/pomodoro-bgm.mp3` のように拡張子が付いていても使えます。
 50 分経過または休憩検知で自動停止します。
 
 ### YouTube から音楽をダウンロードする例
 
 ```bash
-mkdir -p music
-yt-dlp -x --audio-format mp3 -o "music/pomodoro-bgm.%(ext)s" "YouTubeのURL"
+mkdir -p ~/Music
+yt-dlp -x --audio-format mp3 -o "~/Music/pomodoro-bgm.%(ext)s" "YouTubeのURL"
 ```
 
 ファイルを置き換えたら `systemctl --user restart pomowatcher` で反映されます。
