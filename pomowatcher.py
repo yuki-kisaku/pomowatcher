@@ -19,18 +19,21 @@ IDLE_THRESHOLD_SEC  = 10 * 60
 CHECK_INTERVAL_SEC  = 30
 ACTIVE_LIMIT_MS     = 30 * 1000
 
-# 作業中 BGM（mp3 / ogg / flac など mpv が読める形式）
-# ファイルが存在しない場合は何も再生しない
-BGM_FILE_STEM = os.path.expanduser("~/Music/pomodoro-bgm")
+# 作業中 BGM
+# 優先順:
+#   1. ~/Music/pomodoro-bgm/ ディレクトリ → 中の全曲をシャッフル再生
+#   2. ~/Music/pomodoro-bgm.mp3 など単一ファイル → ループ再生
+# いずれも存在しない場合は何も再生しない
+BGM_DIR = os.path.expanduser("~/Music/pomodoro-bgm")
 BGM_FILE_CANDIDATES = [
-    BGM_FILE_STEM,
-    f"{BGM_FILE_STEM}.mp3",
-    f"{BGM_FILE_STEM}.ogg",
-    f"{BGM_FILE_STEM}.flac",
-    f"{BGM_FILE_STEM}.m4a",
-    f"{BGM_FILE_STEM}.opus",
-    f"{BGM_FILE_STEM}.webm",
+    f"{BGM_DIR}.mp3",
+    f"{BGM_DIR}.ogg",
+    f"{BGM_DIR}.flac",
+    f"{BGM_DIR}.m4a",
+    f"{BGM_DIR}.opus",
+    f"{BGM_DIR}.webm",
 ]
+AUDIO_EXTENSIONS = {".mp3", ".ogg", ".flac", ".m4a", ".opus", ".webm", ".wav", ".aac"}
 
 logging.basicConfig(stream=sys.stdout, level=logging.INFO,
                     format="%(asctime)s %(message)s", datefmt="%H:%M:%S")
@@ -42,30 +45,46 @@ _bgm_process = None
 _bgm_lock = threading.Lock()
 
 
-def _find_bgm_file():
-    """BGM ファイルを探す。yt-dlp が拡張子を付ける場合も見る。"""
+def _find_bgm_target():
+    """BGM の再生対象を返す。
+    - ディレクトリが存在すれば "dir:/path"
+    - 単一ファイルがあれば "file:/path"
+    - なければ None
+    """
+    if os.path.isdir(BGM_DIR):
+        audio_files = sorted(
+            f for f in os.listdir(BGM_DIR)
+            if os.path.splitext(f)[1].lower() in AUDIO_EXTENSIONS
+        )
+        if audio_files:
+            return ("dir", BGM_DIR)
     for path in BGM_FILE_CANDIDATES:
-        if os.path.exists(path):
-            return path
+        if os.path.isfile(path):
+            return ("file", path)
     return None
 
 
 def _start_bgm():
-    """mpv をループ再生で起動する。すでに再生中なら何もしない。"""
+    """mpv を起動する。すでに再生中なら何もしない。"""
     global _bgm_process
-    bgm_file = _find_bgm_file()
-    if bgm_file is None:
-        logging.debug(f"BGM ファイルが見つかりません: {BGM_FILE_STEM}")
+    target = _find_bgm_target()
+    if target is None:
+        logging.debug(f"BGM が見つかりません: {BGM_DIR}")
         return
+    kind, path = target
     with _bgm_lock:
         if _bgm_process is not None and _bgm_process.poll() is None:
-            return  # すでに再生中
+            return
         try:
+            if kind == "dir":
+                cmd = ["mpv", "--no-video", "--shuffle", "--loop-playlist=inf", "--really-quiet", path]
+            else:
+                cmd = ["mpv", "--no-video", "--loop-file=inf", "--really-quiet", path]
             _bgm_process = subprocess.Popen(
-                ["mpv", "--no-video", "--loop-file=inf", "--really-quiet", bgm_file],
+                cmd,
                 stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             )
-            logging.info(f"BGM 再生開始: {bgm_file}")
+            logging.info(f"BGM 再生開始: {path} ({kind})")
         except FileNotFoundError:
             logging.warning("mpv が見つかりません。sudo apt install mpv でインストールしてください")
 
