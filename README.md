@@ -30,8 +30,8 @@ sudo apt install python3-gi gir1.2-gtk-3.0 \
 ## インストール
 
 ```bash
-git clone <このリポジトリ> ~/ai-dev/pomowatcher
-cd ~/ai-dev/pomowatcher
+git clone <このリポジトリ> ~/dev/pomowatcher
+cd ~/dev/pomowatcher
 ./install.sh
 sudo usermod -aG input $USER   # 初回のみ
 sudo reboot                    # グループ反映＆udev反映
@@ -45,7 +45,7 @@ sudo reboot                    # グループ反映＆udev反映
 ## 更新
 
 ```bash
-cd ~/ai-dev/pomowatcher
+cd ~/dev/pomowatcher
 git pull
 systemctl --user restart pomowatcher
 ```

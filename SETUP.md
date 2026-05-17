@@ -17,7 +17,7 @@ grep -E "AutomaticLoginEnable|AutomaticLogin" /etc/gdm3/custom.conf 2>/dev/null 
 python3 -c "import gi, evdev; print('✓ OK')" 2>/dev/null || echo "✗ 不足あり"
 
 # リポジトリが clone 済みか
-ls ~/ai-dev/pomowatcher/pomowatcher.py 2>/dev/null && echo "✓ clone済み" || echo "✗ 未clone"
+ls ~/dev/pomowatcher/pomowatcher.py 2>/dev/null && echo "✓ clone済み" || echo "✗ 未clone"
 
 # サービスが動いているか
 systemctl --user is-active pomowatcher 2>/dev/null || echo "✗ 未起動"
@@ -67,14 +67,14 @@ sudo apt install -y \
 ### 2-1. クローン
 
 ```bash
-mkdir -p ~/ai-dev
-git clone git@github.com:yuki-kisaku/pomowatcher.git ~/ai-dev/pomowatcher
+mkdir -p ~/dev
+git clone git@github.com:yuki-kisaku/pomowatcher.git ~/dev/pomowatcher
 ```
 
 ### 2-2. インストール（シンボリックリンク + サービス登録）
 
 ```bash
-cd ~/ai-dev/pomowatcher
+cd ~/dev/pomowatcher
 ./install.sh
 ```
 

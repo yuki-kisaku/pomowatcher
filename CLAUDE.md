@@ -6,7 +6,7 @@
 
 - Ubuntu Desktop 24.04 LTS, GNOME, Wayland
 - ユーザ: `yuki`、passwordless sudo 設定済み
-- リポジトリ: `~/ai-dev/pomowatcher/`
+- リポジトリ: `~/dev/pomowatcher/`
 - インストール: `./install.sh` でシンボリックリンク + サービス起動
 - `keyd` でキーリマップが動いている（重要）
 
@@ -55,14 +55,14 @@
 ## やっていいこと / やっちゃダメなこと
 
 **やっていい:**
-- `~/ai-dev/pomowatcher/` 以下の全ファイル編集
+- `~/dev/pomowatcher/` 以下の全ファイル編集
 - `sudo apt install` で依存追加
 - `systemctl --user restart/status pomowatcher`
 - udev ルール修正（`/etc/udev/rules.d/99-pomowatcher.rules`）
 - git commit / push（main ブランチ直 push でよい、PR 不要）
 
 **やっちゃダメ:**
-- ユーザのホーム以下の他プロジェクト (`~/ai-dev/pomowatcher/` 以外) を触る
+- ユーザのホーム以下の他プロジェクト (`~/dev/pomowatcher/` 以外) を触る
 - システム全体の設定変更（GDM, sshd, sudoers など）
 - `git push --force`
 - テスト用しきい値のままコミット
