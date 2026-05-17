@@ -24,7 +24,7 @@ Ubuntu 用の自動ポモドーロタイマー。**作業時間を自動検知�
 
 ```bash
 sudo apt install python3-gi gir1.2-gtk-3.0 \
-  gir1.2-ayatanaappindicator3-0.1 python3-evdev libnotify-bin libcanberra-gtk3-bin
+  gir1.2-ayatanaappindicator3-0.1 python3-evdev libnotify-bin libcanberra-gtk3-bin mpv yt-dlp
 ```
 
 ## インストール
@@ -59,6 +59,21 @@ systemctl --user disable --now pomowatcher
 rm ~/.local/bin/pomowatcher.py ~/.config/systemd/user/pomowatcher.service
 sudo rm /etc/udev/rules.d/99-pomowatcher.rules
 ```
+
+## BGM（作業中に好きな音楽を流す）
+
+`mpv` で読める音声ファイル（mp3 / ogg / flac など）を `sounds/pomodoro.mp3` に置くと、作業中に自動でループ再生されます。
+50 分経過または休憩検知で自動停止します。
+
+### YouTube から音楽をダウンロードする例
+
+```bash
+mkdir -p sounds
+yt-dlp -x --audio-format mp3 -o "sounds/pomodoro.%(ext)s" "YouTubeのURL"
+```
+
+ファイルを置き換えたら `systemctl --user restart pomowatcher` で反映されます。
+`mpv` と `yt-dlp` は依存パッケージに含まれています。
 
 ## 設定（しきい値）
 

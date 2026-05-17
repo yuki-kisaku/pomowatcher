@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+import atexit
+import os
 import subprocess
 import logging
 import sys
@@ -17,19 +19,71 @@ IDLE_THRESHOLD_SEC  = 10 * 60
 CHECK_INTERVAL_SEC  = 30
 ACTIVE_LIMIT_MS     = 30 * 1000
 
+# 作業中 BGM（mp3 / ogg / flac など mpv が読める形式）
+# ファイルが存在しない場合は何も再生しない
+BGM_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sounds", "pomodoro.mp3")
+
 logging.basicConfig(stream=sys.stdout, level=logging.INFO,
                     format="%(asctime)s %(message)s", datefmt="%H:%M:%S")
+
+
+# --- BGM 管理 ---
+
+_bgm_process = None
+_bgm_lock = threading.Lock()
+
+
+def _start_bgm():
+    """mpv をループ再生で起動する。すでに再生中なら何もしない。"""
+    global _bgm_process
+    if not os.path.exists(BGM_FILE):
+        logging.debug(f"BGM ファイルが見つかりません: {BGM_FILE}")
+        return
+    with _bgm_lock:
+        if _bgm_process is not None and _bgm_process.poll() is None:
+            return  # すでに再生中
+        try:
+            _bgm_process = subprocess.Popen(
+                ["mpv", "--no-video", "--loop-file=inf", "--really-quiet", BGM_FILE],
+                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            )
+            logging.info("BGM 再生開始")
+        except FileNotFoundError:
+            logging.warning("mpv が見つかりません。sudo apt install mpv でインストールしてください")
+
+
+def _stop_bgm():
+    """再生中の mpv を停止する。"""
+    global _bgm_process
+    with _bgm_lock:
+        if _bgm_process is not None:
+            p = _bgm_process
+            _bgm_process = None
+            try:
+                p.terminate()
+                p.wait(timeout=2)
+            except (subprocess.TimeoutExpired, ProcessLookupError):
+                try:
+                    p.kill()
+                    p.wait(timeout=2)
+                except (subprocess.TimeoutExpired, ProcessLookupError):
+                    pass
+            logging.info("BGM 停止")
+
+
+atexit.register(_stop_bgm)
 
 
 # --- 拡張ポイント ---
 
 def on_work_start():
-    pass  # 将来: BGM再生など
+    _start_bgm()
 
 def on_break_detected():
-    pass  # 将来: BGM停止など
+    _stop_bgm()
 
 def on_50min_reached():
+    _stop_bgm()
     subprocess.run([
         "notify-send", "--urgency=normal",
         "作業50分経過", "そろそろ休憩しましょう！",
@@ -144,12 +198,16 @@ class PomoWatcher:
         menu.append(self.pause_menu_item)
 
         quit_item = Gtk.MenuItem(label="終了")
-        quit_item.connect("activate", lambda *_: Gtk.main_quit())
+        quit_item.connect("activate", self._on_quit)
         menu.append(quit_item)
 
         menu.show_all()
         indicator.set_menu(menu)
         return indicator
+
+    def _on_quit(self, *_):
+        _stop_bgm()
+        Gtk.main_quit()
 
     def _progress_icon(self) -> str:
         icons = ["○", "◔", "◑", "◕", "●"]
@@ -201,11 +259,18 @@ class PomoWatcher:
         self.awaiting_break = False
         self.pause_menu_item.set_label("停止")
         self._update_indicator()
+        _start_bgm()  # リセット後は作業開始扱い
         logging.info("リセット")
 
     def _on_pause_toggle(self, *_):
         self.paused = not self.paused
         self.pause_menu_item.set_label("再開" if self.paused else "停止")
+        if self.paused:
+            _stop_bgm()
+        else:
+            # 再開時：休憩中でなければ BGM 再開
+            if not self.awaiting_break and not self.was_on_break:
+                _start_bgm()
         logging.info("一時停止" if self.paused else "再開")
         self._update_indicator()
 
