@@ -34,9 +34,20 @@ BGM_FILE_CANDIDATES = [
     f"{BGM_DIR}.webm",
 ]
 AUDIO_EXTENSIONS = {".mp3", ".ogg", ".flac", ".m4a", ".opus", ".webm", ".wav", ".aac"}
+BLANK_ICON_NAME = "pomowatcher-blank"
+BLANK_ICON_DIR = os.path.expanduser("~/.cache/pomowatcher")
+BLANK_ICON_PATH = os.path.join(BLANK_ICON_DIR, f"{BLANK_ICON_NAME}.svg")
 
 logging.basicConfig(stream=sys.stdout, level=logging.INFO,
                     format="%(asctime)s %(message)s", datefmt="%H:%M:%S")
+
+
+def _ensure_blank_icon():
+    os.makedirs(BLANK_ICON_DIR, exist_ok=True)
+    if not os.path.exists(BLANK_ICON_PATH):
+        with open(BLANK_ICON_PATH, "w", encoding="utf-8") as f:
+            f.write('<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"/>\n')
+    return BLANK_ICON_NAME
 
 
 # --- BGM 管理 ---
@@ -216,11 +227,13 @@ class PomoWatcher:
     # --- トレイアイコン ---
 
     def _build_indicator(self):
+        icon_name = _ensure_blank_icon()
         indicator = AppIndicator3.Indicator.new(
             "pomowatcher",
-            "alarm-symbolic",
+            icon_name,
             AppIndicator3.IndicatorCategory.APPLICATION_STATUS,
         )
+        indicator.set_icon_theme_path(BLANK_ICON_DIR)
         indicator.set_status(AppIndicator3.IndicatorStatus.ACTIVE)
         indicator.set_label(f"○ {WORK_THRESHOLD_SEC // 60}:00", f"○ {WORK_THRESHOLD_SEC // 60}:00")
 
