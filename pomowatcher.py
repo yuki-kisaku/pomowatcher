@@ -218,7 +218,7 @@ class PomoWatcher:
     def _build_indicator(self):
         indicator = AppIndicator3.Indicator.new(
             "pomowatcher",
-            "appointment-soon",
+            "alarm-symbolic",
             AppIndicator3.IndicatorCategory.APPLICATION_STATUS,
         )
         indicator.set_status(AppIndicator3.IndicatorStatus.ACTIVE)
