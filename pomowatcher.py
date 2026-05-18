@@ -361,6 +361,7 @@ class PomoWatcher:
                 self.awaiting_break = True
 
         else:
+            _stop_bgm()
             if idle_sec >= IDLE_THRESHOLD_SEC and not self.was_on_break:
                 logging.info(f"休憩検知（{idle_sec // 60}分{idle_sec % 60}秒アイドル）→ リセット")
                 on_break_detected()
