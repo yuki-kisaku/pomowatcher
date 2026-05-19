@@ -65,6 +65,7 @@ sudo rm /etc/udev/rules.d/99-pomowatcher.rules
 `~/Music/pomodoro-bgm/` フォルダに音声ファイルを置くと、作業中にシャッフル再生されます。
 `~/Music/pomodoro-bgm.mp3` のように単一ファイルでも使えます。
 idle 状態になると自動停止し、作業再開でまた再生します。50 分経過時も自動停止します。
+トレイメニューの `次の曲` から、シャッフル再生中の次の曲へ送れます。
 
 ### pomobgm コマンド（YouTube から並列ダウンロード）
 

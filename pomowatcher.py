@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 import atexit
+import json
 import os
+import socket
 import subprocess
 import logging
 import sys
@@ -34,6 +36,7 @@ BGM_FILE_CANDIDATES = [
     f"{BGM_DIR}.webm",
 ]
 AUDIO_EXTENSIONS = {".mp3", ".ogg", ".flac", ".m4a", ".opus", ".webm", ".wav", ".aac"}
+MPV_IPC_PATH = f"/tmp/pomowatcher-mpv-{os.getuid()}.sock"
 BLANK_ICON_NAME = "pomowatcher-blank"
 BLANK_ICON_DIR = os.path.expanduser("~/.cache/pomowatcher")
 BLANK_ICON_PATH = os.path.join(BLANK_ICON_DIR, f"{BLANK_ICON_NAME}.svg")
@@ -87,10 +90,29 @@ def _start_bgm():
         if _bgm_process is not None and _bgm_process.poll() is None:
             return
         try:
+            try:
+                os.unlink(MPV_IPC_PATH)
+            except FileNotFoundError:
+                pass
             if kind == "dir":
-                cmd = ["mpv", "--no-video", "--shuffle", "--loop-playlist=inf", "--really-quiet", path]
+                cmd = [
+                    "mpv",
+                    "--no-video",
+                    "--shuffle",
+                    "--loop-playlist=inf",
+                    f"--input-ipc-server={MPV_IPC_PATH}",
+                    "--really-quiet",
+                    path,
+                ]
             else:
-                cmd = ["mpv", "--no-video", "--loop-file=inf", "--really-quiet", path]
+                cmd = [
+                    "mpv",
+                    "--no-video",
+                    "--loop-file=inf",
+                    f"--input-ipc-server={MPV_IPC_PATH}",
+                    "--really-quiet",
+                    path,
+                ]
             _bgm_process = subprocess.Popen(
                 cmd,
                 stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
@@ -98,6 +120,28 @@ def _start_bgm():
             logging.info(f"BGM 再生開始: {path} ({kind})")
         except FileNotFoundError:
             logging.warning("mpv が見つかりません。sudo apt install mpv でインストールしてください")
+
+
+def _send_mpv_command(command):
+    """再生中の mpv に IPC コマンドを送る。"""
+    payload = json.dumps({"command": command}).encode("utf-8") + b"\n"
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
+            client.settimeout(1)
+            client.connect(MPV_IPC_PATH)
+            client.sendall(payload)
+    except (FileNotFoundError, ConnectionRefusedError, OSError) as e:
+        logging.warning(f"mpv 操作に失敗しました: {e}")
+
+
+def _next_bgm_track():
+    """シャッフル再生中の次の曲へ送る。"""
+    with _bgm_lock:
+        if _bgm_process is None or _bgm_process.poll() is not None:
+            return False
+    _send_mpv_command(["playlist-next", "weak"])
+    logging.info("BGM 次の曲")
+    return True
 
 
 def _stop_bgm():
@@ -116,6 +160,10 @@ def _stop_bgm():
                     p.wait(timeout=2)
                 except (subprocess.TimeoutExpired, ProcessLookupError):
                     pass
+            try:
+                os.unlink(MPV_IPC_PATH)
+            except FileNotFoundError:
+                pass
             logging.info("BGM 停止")
 
 
@@ -247,6 +295,10 @@ class PomoWatcher:
         self.pause_menu_item.connect("activate", self._on_pause_toggle)
         menu.append(self.pause_menu_item)
 
+        next_track_item = Gtk.MenuItem(label="次の曲")
+        next_track_item.connect("activate", self._on_next_track)
+        menu.append(next_track_item)
+
         quit_item = Gtk.MenuItem(label="終了")
         quit_item.connect("activate", self._on_quit)
         menu.append(quit_item)
@@ -323,6 +375,12 @@ class PomoWatcher:
                 _start_bgm()
         logging.info("一時停止" if self.paused else "再開")
         self._update_indicator()
+
+    def _on_next_track(self, *_):
+        if _next_bgm_track():
+            return
+        if not self.paused and not self.awaiting_break and not self.was_on_break:
+            _start_bgm()
 
     # --- 定期チェック ---
 
