@@ -56,6 +56,7 @@ def _ensure_blank_icon():
 # --- BGM 管理 ---
 
 _bgm_process = None
+_bgm_paused_by_idle = False
 _bgm_lock = threading.Lock()
 
 
@@ -80,7 +81,7 @@ def _find_bgm_target():
 
 def _start_bgm():
     """mpv を起動する。すでに再生中なら何もしない。"""
-    global _bgm_process
+    global _bgm_process, _bgm_paused_by_idle
     target = _find_bgm_target()
     if target is None:
         logging.debug(f"BGM が見つかりません: {BGM_DIR}")
@@ -117,6 +118,7 @@ def _start_bgm():
                 cmd,
                 stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             )
+            _bgm_paused_by_idle = False
             logging.info(f"BGM 再生開始: {path} ({kind})")
         except FileNotFoundError:
             logging.warning("mpv が見つかりません。sudo apt install mpv でインストールしてください")
@@ -130,8 +132,51 @@ def _send_mpv_command(command):
             client.settimeout(1)
             client.connect(MPV_IPC_PATH)
             client.sendall(payload)
+        return True
     except (FileNotFoundError, ConnectionRefusedError, OSError) as e:
         logging.warning(f"mpv 操作に失敗しました: {e}")
+        return False
+
+
+def _is_bgm_running():
+    return _bgm_process is not None and _bgm_process.poll() is None
+
+
+def _is_bgm_paused_by_idle():
+    with _bgm_lock:
+        return _bgm_paused_by_idle and _is_bgm_running()
+
+
+def _pause_bgm():
+    """短い idle では mpv を終了せず、曲位置を保って一時停止する。"""
+    global _bgm_paused_by_idle
+    with _bgm_lock:
+        if not _is_bgm_running() or _bgm_paused_by_idle:
+            return False
+    if not _send_mpv_command(["set_property", "pause", True]):
+        return False
+    with _bgm_lock:
+        if _is_bgm_running():
+            _bgm_paused_by_idle = True
+            logging.info("BGM 一時停止")
+            return True
+    return False
+
+
+def _resume_bgm():
+    """idle で一時停止した BGM を同じ位置から再開する。"""
+    global _bgm_paused_by_idle
+    with _bgm_lock:
+        if not _bgm_paused_by_idle or not _is_bgm_running():
+            return False
+    if not _send_mpv_command(["set_property", "pause", False]):
+        return False
+    with _bgm_lock:
+        if _is_bgm_running():
+            _bgm_paused_by_idle = False
+            logging.info("BGM 再開")
+            return True
+    return False
 
 
 def _next_bgm_track():
@@ -146,11 +191,12 @@ def _next_bgm_track():
 
 def _stop_bgm():
     """再生中の mpv を停止する。"""
-    global _bgm_process
+    global _bgm_process, _bgm_paused_by_idle
     with _bgm_lock:
         if _bgm_process is not None:
             p = _bgm_process
             _bgm_process = None
+            _bgm_paused_by_idle = False
             try:
                 p.terminate()
                 p.wait(timeout=2)
@@ -173,7 +219,8 @@ atexit.register(_stop_bgm)
 # --- 拡張ポイント ---
 
 def on_work_start():
-    _start_bgm()
+    if not _resume_bgm():
+        _start_bgm()
 
 def on_break_detected():
     _stop_bgm()
@@ -333,6 +380,16 @@ class PomoWatcher:
 
     def _refresh_indicator(self) -> bool:
         if (
+            not self.paused
+            and not self.awaiting_break
+            and not self.was_on_break
+            and _is_bgm_paused_by_idle()
+            and get_idle_ms() <= ACTIVE_LIMIT_MS
+        ):
+            logging.info("作業再開を検知（BGM 即時再開）")
+            _resume_bgm()
+
+        if (
             self.was_on_break
             and not self.paused
             and not self.awaiting_break
@@ -408,6 +465,8 @@ class PomoWatcher:
                 logging.info("作業再開を検知")
                 on_work_start()
                 self.was_on_break = False
+            elif _is_bgm_paused_by_idle():
+                _resume_bgm()
 
             self.active_seconds += CHECK_INTERVAL_SEC
             self.window_start = time.monotonic()
@@ -419,7 +478,7 @@ class PomoWatcher:
                 self.awaiting_break = True
 
         else:
-            _stop_bgm()
+            _pause_bgm()
             if idle_sec >= IDLE_THRESHOLD_SEC and not self.was_on_break:
                 logging.info(f"休憩検知（{idle_sec // 60}分{idle_sec % 60}秒アイドル）→ リセット")
                 on_break_detected()
