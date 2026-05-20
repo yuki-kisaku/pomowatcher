@@ -418,7 +418,7 @@ class PomoWatcher:
         self.awaiting_break = False
         self.pause_menu_item.set_label("停止")
         self._update_indicator()
-        _start_bgm()  # リセット後は作業開始扱い
+        on_work_start()  # リセット後は作業開始扱い
         logging.info("リセット")
 
     def _on_pause_toggle(self, *_):
