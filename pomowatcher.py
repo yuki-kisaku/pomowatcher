@@ -84,6 +84,8 @@ def _save_settings(settings):
 _bgm_process = None
 _bgm_paused_by_idle = False
 _bgm_paused_by_mpris = False
+_bgm_paused_by_mute = False
+_bgm_paused_by_app = False
 _bgm_muted = False
 _mpris_playing = False
 _bgm_lock = threading.Lock()
@@ -111,6 +113,7 @@ def _find_bgm_target():
 def _start_bgm():
     """mpv を起動する。すでに再生中なら何もしない。"""
     global _bgm_process, _bgm_paused_by_idle, _bgm_paused_by_mpris
+    global _bgm_paused_by_mute, _bgm_paused_by_app
     with _bgm_lock:
         if _bgm_muted or _mpris_playing:
             return
@@ -152,6 +155,8 @@ def _start_bgm():
             )
             _bgm_paused_by_idle = False
             _bgm_paused_by_mpris = False
+            _bgm_paused_by_mute = False
+            _bgm_paused_by_app = False
             logging.info(f"BGM 再生開始: {path} ({kind})")
         except FileNotFoundError:
             logging.warning("mpv が見つかりません。sudo apt install mpv でインストールしてください")
@@ -183,15 +188,25 @@ def _is_bgm_paused_by_idle():
 def _pause_bgm(reason):
     """mpv を終了せず、曲位置を保って一時停止する。"""
     global _bgm_paused_by_idle, _bgm_paused_by_mpris
+    global _bgm_paused_by_mute, _bgm_paused_by_app
     with _bgm_lock:
         if reason == "idle" and _bgm_paused_by_idle:
             return False
         if reason == "mpris" and _bgm_paused_by_mpris:
             return False
+        if reason == "mute" and _bgm_paused_by_mute:
+            return False
+        if reason == "app" and _bgm_paused_by_app:
+            return False
         if not _is_bgm_running():
             return False
 
-        already_paused = _bgm_paused_by_idle or _bgm_paused_by_mpris
+        already_paused = (
+            _bgm_paused_by_idle
+            or _bgm_paused_by_mpris
+            or _bgm_paused_by_mute
+            or _bgm_paused_by_app
+        )
 
     if not already_paused:
         if not _send_mpv_command(["set_property", "pause", True]):
@@ -205,6 +220,12 @@ def _pause_bgm(reason):
             elif reason == "mpris":
                 _bgm_paused_by_mpris = True
                 logging.info("BGM 一時停止（他メディア再生中）")
+            elif reason == "mute":
+                _bgm_paused_by_mute = True
+                logging.info("BGM 一時停止（ミュート）")
+            elif reason == "app":
+                _bgm_paused_by_app = True
+                logging.info("BGM 一時停止（アプリ停止）")
             return True
     return False
 
@@ -212,6 +233,7 @@ def _pause_bgm(reason):
 def _release_bgm_pause(reason):
     """指定した理由の一時停止を解除し、他に止める理由がなければ再開する。"""
     global _bgm_paused_by_idle, _bgm_paused_by_mpris
+    global _bgm_paused_by_mute, _bgm_paused_by_app
     with _bgm_lock:
         if reason == "idle":
             if not _bgm_paused_by_idle:
@@ -221,6 +243,14 @@ def _release_bgm_pause(reason):
             if not _bgm_paused_by_mpris:
                 return False
             _bgm_paused_by_mpris = False
+        elif reason == "mute":
+            if not _bgm_paused_by_mute:
+                return False
+            _bgm_paused_by_mute = False
+        elif reason == "app":
+            if not _bgm_paused_by_app:
+                return False
+            _bgm_paused_by_app = False
         else:
             return False
 
@@ -228,6 +258,8 @@ def _release_bgm_pause(reason):
             _is_bgm_running()
             and not _bgm_paused_by_idle
             and not _bgm_paused_by_mpris
+            and not _bgm_paused_by_mute
+            and not _bgm_paused_by_app
             and not _bgm_muted
             and not _mpris_playing
         )
@@ -256,11 +288,14 @@ def _next_bgm_track():
 def _stop_bgm():
     """再生中の mpv を停止する。"""
     global _bgm_process, _bgm_paused_by_idle, _bgm_paused_by_mpris
+    global _bgm_paused_by_mute, _bgm_paused_by_app
     with _bgm_lock:
         p = _bgm_process
         _bgm_process = None
         _bgm_paused_by_idle = False
         _bgm_paused_by_mpris = False
+        _bgm_paused_by_mute = False
+        _bgm_paused_by_app = False
 
     if p is None:
         return
@@ -286,7 +321,9 @@ def _set_bgm_muted(muted):
     with _bgm_lock:
         _bgm_muted = muted
     if muted:
-        _stop_bgm()
+        _pause_bgm("mute")
+    else:
+        _release_bgm_pause("mute")
 
 
 def _set_mpris_playing(playing):
@@ -651,11 +688,12 @@ class PomoWatcher:
         self.paused = not self.paused
         self.pause_menu_item.set_label("再開" if self.paused else "停止")
         if self.paused:
-            _stop_bgm()
+            _pause_bgm("app")
         else:
             # 再開時：休憩中でなければ BGM 再開
             if not self.awaiting_break and not self.was_on_break:
-                _start_bgm()
+                if not _release_bgm_pause("app"):
+                    _start_bgm()
         logging.info("一時停止" if self.paused else "再開")
         self._update_indicator()
 
