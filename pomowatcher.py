@@ -13,7 +13,7 @@ import evdev
 import gi
 gi.require_version("Gtk", "3.0")
 gi.require_version("AyatanaAppIndicator3", "0.1")
-from gi.repository import Gtk, GLib, AyatanaAppIndicator3 as AppIndicator3
+from gi.repository import Gtk, GLib, Gio, AyatanaAppIndicator3 as AppIndicator3
 
 # --- 設定 ---
 WORK_THRESHOLD_SEC  = 50 * 60
@@ -37,6 +37,8 @@ BGM_FILE_CANDIDATES = [
 ]
 AUDIO_EXTENSIONS = {".mp3", ".ogg", ".flac", ".m4a", ".opus", ".webm", ".wav", ".aac"}
 MPV_IPC_PATH = f"/tmp/pomowatcher-mpv-{os.getuid()}.sock"
+SETTINGS_DIR = os.path.expanduser("~/.config/pomowatcher")
+SETTINGS_PATH = os.path.join(SETTINGS_DIR, "settings.json")
 BLANK_ICON_NAME = "pomowatcher-blank"
 BLANK_ICON_DIR = os.path.expanduser("~/.cache/pomowatcher")
 BLANK_ICON_PATH = os.path.join(BLANK_ICON_DIR, f"{BLANK_ICON_NAME}.svg")
@@ -53,10 +55,37 @@ def _ensure_blank_icon():
     return BLANK_ICON_NAME
 
 
+# --- 設定ファイル ---
+
+def _load_settings():
+    try:
+        with open(SETTINGS_PATH, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except (FileNotFoundError, OSError, json.JSONDecodeError) as e:
+        if not isinstance(e, FileNotFoundError):
+            logging.warning(f"設定を読み込めません。初期値で続行します: {e}")
+        return {"bgm_muted": False}
+
+    return {"bgm_muted": data.get("bgm_muted") is True}
+
+
+def _save_settings(settings):
+    try:
+        os.makedirs(SETTINGS_DIR, exist_ok=True)
+        with open(SETTINGS_PATH, "w", encoding="utf-8") as f:
+            json.dump({"bgm_muted": settings["bgm_muted"] is True}, f, ensure_ascii=False, indent=2)
+            f.write("\n")
+    except OSError as e:
+        logging.warning(f"設定を保存できません: {e}")
+
+
 # --- BGM 管理 ---
 
 _bgm_process = None
 _bgm_paused_by_idle = False
+_bgm_paused_by_mpris = False
+_bgm_muted = False
+_mpris_playing = False
 _bgm_lock = threading.Lock()
 
 
@@ -81,7 +110,10 @@ def _find_bgm_target():
 
 def _start_bgm():
     """mpv を起動する。すでに再生中なら何もしない。"""
-    global _bgm_process, _bgm_paused_by_idle
+    global _bgm_process, _bgm_paused_by_idle, _bgm_paused_by_mpris
+    with _bgm_lock:
+        if _bgm_muted or _mpris_playing:
+            return
     target = _find_bgm_target()
     if target is None:
         logging.debug(f"BGM が見つかりません: {BGM_DIR}")
@@ -119,6 +151,7 @@ def _start_bgm():
                 stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             )
             _bgm_paused_by_idle = False
+            _bgm_paused_by_mpris = False
             logging.info(f"BGM 再生開始: {path} ({kind})")
         except FileNotFoundError:
             logging.warning("mpv が見つかりません。sudo apt install mpv でインストールしてください")
@@ -147,41 +180,72 @@ def _is_bgm_paused_by_idle():
         return _bgm_paused_by_idle and _is_bgm_running()
 
 
-def _pause_bgm():
-    """短い idle では mpv を終了せず、曲位置を保って一時停止する。"""
-    global _bgm_paused_by_idle
+def _pause_bgm(reason):
+    """mpv を終了せず、曲位置を保って一時停止する。"""
+    global _bgm_paused_by_idle, _bgm_paused_by_mpris
     with _bgm_lock:
-        if not _is_bgm_running() or _bgm_paused_by_idle:
+        if reason == "idle" and _bgm_paused_by_idle:
             return False
-    if not _send_mpv_command(["set_property", "pause", True]):
-        return False
+        if reason == "mpris" and _bgm_paused_by_mpris:
+            return False
+        if not _is_bgm_running():
+            return False
+
+        already_paused = _bgm_paused_by_idle or _bgm_paused_by_mpris
+
+    if not already_paused:
+        if not _send_mpv_command(["set_property", "pause", True]):
+            return False
+
     with _bgm_lock:
         if _is_bgm_running():
-            _bgm_paused_by_idle = True
-            logging.info("BGM 一時停止")
+            if reason == "idle":
+                _bgm_paused_by_idle = True
+                logging.info("BGM 一時停止（idle）")
+            elif reason == "mpris":
+                _bgm_paused_by_mpris = True
+                logging.info("BGM 一時停止（他メディア再生中）")
             return True
     return False
 
 
-def _resume_bgm():
-    """idle で一時停止した BGM を同じ位置から再開する。"""
-    global _bgm_paused_by_idle
+def _release_bgm_pause(reason):
+    """指定した理由の一時停止を解除し、他に止める理由がなければ再開する。"""
+    global _bgm_paused_by_idle, _bgm_paused_by_mpris
     with _bgm_lock:
-        if not _bgm_paused_by_idle or not _is_bgm_running():
+        if reason == "idle":
+            if not _bgm_paused_by_idle:
+                return False
+            _bgm_paused_by_idle = False
+        elif reason == "mpris":
+            if not _bgm_paused_by_mpris:
+                return False
+            _bgm_paused_by_mpris = False
+        else:
             return False
+
+        should_resume = (
+            _is_bgm_running()
+            and not _bgm_paused_by_idle
+            and not _bgm_paused_by_mpris
+            and not _bgm_muted
+            and not _mpris_playing
+        )
+        if not should_resume:
+            return False
+
     if not _send_mpv_command(["set_property", "pause", False]):
         return False
-    with _bgm_lock:
-        if _is_bgm_running():
-            _bgm_paused_by_idle = False
-            logging.info("BGM 再開")
-            return True
-    return False
+
+    logging.info("BGM 再開")
+    return True
 
 
 def _next_bgm_track():
     """シャッフル再生中の次の曲へ送る。"""
     with _bgm_lock:
+        if _bgm_muted or _mpris_playing:
+            return False
         if _bgm_process is None or _bgm_process.poll() is not None:
             return False
     _send_mpv_command(["playlist-next", "weak"])
@@ -191,35 +255,161 @@ def _next_bgm_track():
 
 def _stop_bgm():
     """再生中の mpv を停止する。"""
-    global _bgm_process, _bgm_paused_by_idle
+    global _bgm_process, _bgm_paused_by_idle, _bgm_paused_by_mpris
     with _bgm_lock:
-        if _bgm_process is not None:
-            p = _bgm_process
-            _bgm_process = None
-            _bgm_paused_by_idle = False
-            try:
-                p.terminate()
-                p.wait(timeout=2)
-            except (subprocess.TimeoutExpired, ProcessLookupError):
-                try:
-                    p.kill()
-                    p.wait(timeout=2)
-                except (subprocess.TimeoutExpired, ProcessLookupError):
-                    pass
-            try:
-                os.unlink(MPV_IPC_PATH)
-            except FileNotFoundError:
-                pass
-            logging.info("BGM 停止")
+        p = _bgm_process
+        _bgm_process = None
+        _bgm_paused_by_idle = False
+        _bgm_paused_by_mpris = False
+
+    if p is None:
+        return
+
+    try:
+        p.terminate()
+        p.wait(timeout=2)
+    except (subprocess.TimeoutExpired, ProcessLookupError):
+        try:
+            p.kill()
+            p.wait(timeout=2)
+        except (subprocess.TimeoutExpired, ProcessLookupError):
+            pass
+    try:
+        os.unlink(MPV_IPC_PATH)
+    except FileNotFoundError:
+        pass
+    logging.info("BGM 停止")
+
+
+def _set_bgm_muted(muted):
+    global _bgm_muted
+    with _bgm_lock:
+        _bgm_muted = muted
+    if muted:
+        _stop_bgm()
+
+
+def _set_mpris_playing(playing):
+    global _mpris_playing
+    with _bgm_lock:
+        _mpris_playing = playing
 
 
 atexit.register(_stop_bgm)
 
 
+# --- MPRIS 監視 ---
+
+MPRIS_PREFIX = "org.mpris.MediaPlayer2."
+MPRIS_PLAYER_PATH = "/org/mpris/MediaPlayer2"
+MPRIS_PLAYER_INTERFACE = "org.mpris.MediaPlayer2.Player"
+
+_session_bus = None
+_mpris_warned = False
+
+
+def _get_session_bus():
+    global _session_bus, _mpris_warned
+    if _session_bus is not None:
+        return _session_bus
+    try:
+        _session_bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
+        return _session_bus
+    except GLib.Error as e:
+        if not _mpris_warned:
+            logging.warning(f"MPRIS を確認できません。BGM連動なしで続行します: {e}")
+            _mpris_warned = True
+        return None
+
+
+def _dbus_call(bus, name, path, interface, method, params, result_type):
+    return bus.call_sync(
+        name,
+        path,
+        interface,
+        method,
+        params,
+        GLib.VariantType.new(result_type) if result_type else None,
+        Gio.DBusCallFlags.NONE,
+        1000,
+        None,
+    )
+
+
+def _dbus_name_pid(bus, name):
+    try:
+        result = _dbus_call(
+            bus,
+            "org.freedesktop.DBus",
+            "/org/freedesktop/DBus",
+            "org.freedesktop.DBus",
+            "GetConnectionUnixProcessID",
+            GLib.Variant("(s)", (name,)),
+            "(u)",
+        )
+        return result.unpack()[0]
+    except GLib.Error:
+        return None
+
+
+def _is_own_bgm_player(bus, name):
+    with _bgm_lock:
+        if _bgm_process is None or _bgm_process.poll() is not None:
+            return False
+        bgm_pid = _bgm_process.pid
+    return _dbus_name_pid(bus, name) == bgm_pid
+
+
+def _is_mpris_playing():
+    bus = _get_session_bus()
+    if bus is None:
+        return False
+
+    try:
+        result = _dbus_call(
+            bus,
+            "org.freedesktop.DBus",
+            "/org/freedesktop/DBus",
+            "org.freedesktop.DBus",
+            "ListNames",
+            None,
+            "(as)",
+        )
+        names = result.unpack()[0]
+    except GLib.Error as e:
+        logging.warning(f"MPRIS プレイヤー一覧を読めません: {e}")
+        return False
+
+    for name in names:
+        if not name.startswith(MPRIS_PREFIX):
+            continue
+        if _is_own_bgm_player(bus, name):
+            continue
+
+        try:
+            result = _dbus_call(
+                bus,
+                name,
+                MPRIS_PLAYER_PATH,
+                "org.freedesktop.DBus.Properties",
+                "Get",
+                GLib.Variant("(ss)", (MPRIS_PLAYER_INTERFACE, "PlaybackStatus")),
+                "(v)",
+            )
+            status = result.get_child_value(0).get_variant().unpack()
+        except GLib.Error:
+            continue
+
+        if status == "Playing":
+            return True
+
+    return False
+
+
 # --- 拡張ポイント ---
 
 def on_work_start():
-    if not _resume_bgm():
+    if not _release_bgm_pause("idle"):
         _start_bgm()
 
 def on_break_detected():
@@ -306,17 +496,23 @@ def get_idle_ms() -> int:
 
 class PomoWatcher:
     def __init__(self):
+        self.settings = _load_settings()
+        _set_bgm_muted(self.settings["bgm_muted"])
+
         self.active_seconds = 0
         self.paused = False
+        self.mpris_playing = False
         self.was_on_break = True
         self.awaiting_break = False  # 50分到達後、10分アイドルになるまで True
         self.window_start = None  # 現在のウィンドウの開始時刻（monotonic）
 
         self.indicator = self._build_indicator()
 
+        GLib.timeout_add(100, self._refresh_mpris_once)  # 起動直後に他メディア再生を確認
         GLib.timeout_add(500, self._tick_once)  # 起動0.5秒後に1回だけ実行
         GLib.timeout_add_seconds(CHECK_INTERVAL_SEC, self._tick)
         GLib.timeout_add_seconds(1, self._refresh_indicator)
+        GLib.timeout_add_seconds(2, self._refresh_mpris)
         logging.info("pomowatcher 開始")
 
     # --- トレイアイコン ---
@@ -341,6 +537,11 @@ class PomoWatcher:
         self.pause_menu_item = Gtk.MenuItem(label="停止")
         self.pause_menu_item.connect("activate", self._on_pause_toggle)
         menu.append(self.pause_menu_item)
+
+        self.bgm_mute_menu_item = Gtk.CheckMenuItem(label="BGM ミュート")
+        self.bgm_mute_menu_item.set_active(self.settings["bgm_muted"])
+        self.bgm_mute_menu_item.connect("toggled", self._on_bgm_mute_toggle)
+        menu.append(self.bgm_mute_menu_item)
 
         next_track_item = Gtk.MenuItem(label="次の曲")
         next_track_item.connect("activate", self._on_next_track)
@@ -387,7 +588,7 @@ class PomoWatcher:
             and get_idle_ms() <= ACTIVE_LIMIT_MS
         ):
             logging.info("作業再開を検知（BGM 即時再開）")
-            _resume_bgm()
+            on_work_start()
 
         if (
             self.was_on_break
@@ -401,6 +602,31 @@ class PomoWatcher:
             self.window_start = time.monotonic()
         self._update_indicator()
         return True
+
+    def _should_play_bgm_now(self):
+        return not self.paused and not self.awaiting_break and not self.was_on_break
+
+    def _refresh_mpris(self) -> bool:
+        playing = _is_mpris_playing()
+        if playing == self.mpris_playing:
+            return True
+
+        self.mpris_playing = playing
+        _set_mpris_playing(playing)
+
+        if playing:
+            _pause_bgm("mpris")
+            logging.info("他メディアの再生を検知")
+        else:
+            logging.info("他メディアの再生終了を検知")
+            if not _release_bgm_pause("mpris") and self._should_play_bgm_now():
+                _start_bgm()
+
+        return True
+
+    def _refresh_mpris_once(self) -> bool:
+        self._refresh_mpris()
+        return False
 
     def _display_elapsed(self) -> float:
         """コミット済み時間 + 現ウィンドウの経過秒を合計した表示用の経過時間"""
@@ -432,6 +658,15 @@ class PomoWatcher:
                 _start_bgm()
         logging.info("一時停止" if self.paused else "再開")
         self._update_indicator()
+
+    def _on_bgm_mute_toggle(self, item):
+        muted = item.get_active()
+        self.settings["bgm_muted"] = muted
+        _set_bgm_muted(muted)
+        _save_settings(self.settings)
+        logging.info("BGM ミュート ON" if muted else "BGM ミュート OFF")
+        if not muted and self._should_play_bgm_now():
+            _start_bgm()
 
     def _on_next_track(self, *_):
         if _next_bgm_track():
@@ -466,7 +701,7 @@ class PomoWatcher:
                 on_work_start()
                 self.was_on_break = False
             elif _is_bgm_paused_by_idle():
-                _resume_bgm()
+                on_work_start()
 
             self.active_seconds += CHECK_INTERVAL_SEC
             self.window_start = time.monotonic()
@@ -478,7 +713,7 @@ class PomoWatcher:
                 self.awaiting_break = True
 
         else:
-            _pause_bgm()
+            _pause_bgm("idle")
             if idle_sec >= IDLE_THRESHOLD_SEC and not self.was_on_break:
                 logging.info(f"休憩検知（{idle_sec // 60}分{idle_sec % 60}秒アイドル）→ リセット")
                 on_break_detected()
