@@ -475,28 +475,33 @@ _input_lock = threading.Lock()
 
 def _physical_devices():
     """キーボード・マウス相当の物理デバイスのパスを返す。
-    仮想デバイス（Phys が空）とオーディオ SW デバイス（EV_KEY/EV_REL なし）を除外する。
+    keyd の仮想キーボードは許可し、仮想ポインタやオーディオ SW デバイスは除外する。
     """
     EV_KEY = 1 << 1
     EV_REL = 1 << 2
 
     devices = []
+    current_name = ""
     current_phys = None
     current_handlers = []
     current_ev = 0
     for line in open("/proc/bus/input/devices"):
         line = line.strip()
-        if line.startswith("P:"):
+        if line.startswith("N:"):
+            current_name = line.split("=", 1)[1].strip().strip('"')
+        elif line.startswith("P:"):
             current_phys = line.split("=", 1)[1].strip()
         elif line.startswith("H:"):
             current_handlers = line.split("=", 1)[1].split()
         elif line.startswith("B:") and "EV=" in line:
             current_ev = int(line.split("=")[1], 16)
         elif line == "":
-            if current_phys and (current_ev & (EV_KEY | EV_REL)):
+            is_keyd_keyboard = current_name == "keyd virtual keyboard"
+            if (current_phys or is_keyd_keyboard) and (current_ev & (EV_KEY | EV_REL)):
                 for h in current_handlers:
                     if h.startswith("event"):
                         devices.append(f"/dev/input/{h}")
+            current_name = ""
             current_phys = None
             current_handlers = []
             current_ev = 0
