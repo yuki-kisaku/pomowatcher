@@ -614,13 +614,18 @@ class PomoWatcher:
 
         menu = Gtk.Menu()
 
+        pomodoro_item = Gtk.MenuItem(label="Pomodoro")
+        pomodoro_menu = Gtk.Menu()
+        pomodoro_item.set_submenu(pomodoro_menu)
+        menu.append(pomodoro_item)
+
         reset_item = Gtk.MenuItem(label="リセット")
         reset_item.connect("activate", self._on_reset)
-        menu.append(reset_item)
+        pomodoro_menu.append(reset_item)
 
         self.pause_menu_item = Gtk.MenuItem(label="停止")
         self.pause_menu_item.connect("activate", self._on_pause_toggle)
-        menu.append(self.pause_menu_item)
+        pomodoro_menu.append(self.pause_menu_item)
 
         bgm_item = Gtk.MenuItem(label="BGM")
         bgm_menu = Gtk.Menu()
