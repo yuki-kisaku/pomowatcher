@@ -39,6 +39,8 @@ AUDIO_EXTENSIONS = {".mp3", ".ogg", ".flac", ".m4a", ".opus", ".webm", ".wav", "
 MPV_IPC_PATH = f"/tmp/pomowatcher-mpv-{os.getuid()}.sock"
 SETTINGS_DIR = os.path.expanduser("~/.config/pomowatcher")
 SETTINGS_PATH = os.path.join(SETTINGS_DIR, "settings.json")
+BGM_VOLUME_DEFAULT = 50
+BGM_VOLUME_CHOICES = [25, 50, 75, 100, 125]
 BLANK_ICON_NAME = "pomowatcher-blank"
 BLANK_ICON_DIR = os.path.expanduser("~/.cache/pomowatcher")
 BLANK_ICON_PATH = os.path.join(BLANK_ICON_DIR, f"{BLANK_ICON_NAME}.svg")
@@ -57,6 +59,16 @@ def _ensure_blank_icon():
 
 # --- 設定ファイル ---
 
+def _normalize_bgm_volume(value):
+    try:
+        volume = int(value)
+    except (TypeError, ValueError):
+        return BGM_VOLUME_DEFAULT
+    if volume not in BGM_VOLUME_CHOICES:
+        return BGM_VOLUME_DEFAULT
+    return volume
+
+
 def _load_settings():
     try:
         with open(SETTINGS_PATH, "r", encoding="utf-8") as f:
@@ -64,16 +76,27 @@ def _load_settings():
     except (FileNotFoundError, OSError, json.JSONDecodeError) as e:
         if not isinstance(e, FileNotFoundError):
             logging.warning(f"設定を読み込めません。初期値で続行します: {e}")
-        return {"bgm_muted": False}
+        return {"bgm_muted": False, "bgm_volume": BGM_VOLUME_DEFAULT}
 
-    return {"bgm_muted": data.get("bgm_muted") is True}
+    return {
+        "bgm_muted": data.get("bgm_muted") is True,
+        "bgm_volume": _normalize_bgm_volume(data.get("bgm_volume")),
+    }
 
 
 def _save_settings(settings):
     try:
         os.makedirs(SETTINGS_DIR, exist_ok=True)
         with open(SETTINGS_PATH, "w", encoding="utf-8") as f:
-            json.dump({"bgm_muted": settings["bgm_muted"] is True}, f, ensure_ascii=False, indent=2)
+            json.dump(
+                {
+                    "bgm_muted": settings["bgm_muted"] is True,
+                    "bgm_volume": _normalize_bgm_volume(settings.get("bgm_volume")),
+                },
+                f,
+                ensure_ascii=False,
+                indent=2,
+            )
             f.write("\n")
     except OSError as e:
         logging.warning(f"設定を保存できません: {e}")
@@ -87,6 +110,7 @@ _bgm_paused_by_mpris = False
 _bgm_paused_by_mute = False
 _bgm_paused_by_app = False
 _bgm_muted = False
+_bgm_volume = BGM_VOLUME_DEFAULT
 _mpris_playing = False
 _bgm_lock = threading.Lock()
 
@@ -117,6 +141,7 @@ def _start_bgm():
     with _bgm_lock:
         if _bgm_muted or _mpris_playing:
             return
+        volume = _bgm_volume
     target = _find_bgm_target()
     if target is None:
         logging.debug(f"BGM が見つかりません: {BGM_DIR}")
@@ -136,6 +161,7 @@ def _start_bgm():
                     "--no-video",
                     "--shuffle",
                     "--loop-playlist=inf",
+                    f"--volume={volume}",
                     f"--input-ipc-server={MPV_IPC_PATH}",
                     "--really-quiet",
                     path,
@@ -145,6 +171,7 @@ def _start_bgm():
                     "mpv",
                     "--no-video",
                     "--loop-file=inf",
+                    f"--volume={volume}",
                     f"--input-ipc-server={MPV_IPC_PATH}",
                     "--really-quiet",
                     path,
@@ -324,6 +351,18 @@ def _set_bgm_muted(muted):
         _pause_bgm("mute")
     else:
         _release_bgm_pause("mute")
+
+
+def _set_bgm_volume(volume):
+    global _bgm_volume
+    volume = _normalize_bgm_volume(volume)
+    with _bgm_lock:
+        _bgm_volume = volume
+        running = _is_bgm_running()
+    if running:
+        _send_mpv_command(["set_property", "volume", volume])
+    logging.info(f"BGM 音量 {volume}%")
+    return volume
 
 
 def _set_mpris_playing(playing):
@@ -540,6 +579,7 @@ class PomoWatcher:
     def __init__(self):
         self.settings = _load_settings()
         _set_bgm_muted(self.settings["bgm_muted"])
+        _set_bgm_volume(self.settings["bgm_volume"])
 
         self.active_seconds = 0
         self.paused = False
@@ -580,14 +620,37 @@ class PomoWatcher:
         self.pause_menu_item.connect("activate", self._on_pause_toggle)
         menu.append(self.pause_menu_item)
 
-        self.bgm_mute_menu_item = Gtk.CheckMenuItem(label="BGM ミュート")
+        bgm_item = Gtk.MenuItem(label="BGM")
+        bgm_menu = Gtk.Menu()
+        bgm_item.set_submenu(bgm_menu)
+        menu.append(bgm_item)
+
+        self.bgm_mute_menu_item = Gtk.CheckMenuItem(label="ミュート")
         self.bgm_mute_menu_item.set_active(self.settings["bgm_muted"])
         self.bgm_mute_menu_item.connect("toggled", self._on_bgm_mute_toggle)
-        menu.append(self.bgm_mute_menu_item)
+        bgm_menu.append(self.bgm_mute_menu_item)
+
+        bgm_menu.append(Gtk.SeparatorMenuItem())
+
+        self.bgm_volume_menu_items = []
+        volume_group = None
+        for volume in BGM_VOLUME_CHOICES:
+            volume_item = Gtk.RadioMenuItem.new_with_label_from_widget(
+                volume_group,
+                f"音量 {volume}%",
+            )
+            if volume_group is None:
+                volume_group = volume_item
+            volume_item.set_active(volume == self.settings["bgm_volume"])
+            volume_item.connect("toggled", self._on_bgm_volume_toggle, volume)
+            self.bgm_volume_menu_items.append(volume_item)
+            bgm_menu.append(volume_item)
+
+        bgm_menu.append(Gtk.SeparatorMenuItem())
 
         next_track_item = Gtk.MenuItem(label="次の曲")
         next_track_item.connect("activate", self._on_next_track)
-        menu.append(next_track_item)
+        bgm_menu.append(next_track_item)
 
         quit_item = Gtk.MenuItem(label="終了")
         quit_item.connect("activate", self._on_quit)
@@ -710,6 +773,13 @@ class PomoWatcher:
         logging.info("BGM ミュート ON" if muted else "BGM ミュート OFF")
         if not muted and self._should_play_bgm_now():
             _start_bgm()
+
+    def _on_bgm_volume_toggle(self, item, volume):
+        if not item.get_active():
+            return
+        volume = _set_bgm_volume(volume)
+        self.settings["bgm_volume"] = volume
+        _save_settings(self.settings)
 
     def _on_next_track(self, *_):
         if _next_bgm_track():
