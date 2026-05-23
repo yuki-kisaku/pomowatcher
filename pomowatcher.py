@@ -40,7 +40,9 @@ MPV_IPC_PATH = f"/tmp/pomowatcher-mpv-{os.getuid()}.sock"
 SETTINGS_DIR = os.path.expanduser("~/.config/pomowatcher")
 SETTINGS_PATH = os.path.join(SETTINGS_DIR, "settings.json")
 BGM_VOLUME_DEFAULT = 50
-BGM_VOLUME_CHOICES = [25, 50, 75, 100, 125]
+BGM_VOLUME_MIN = 0
+BGM_VOLUME_MAX = 125
+BGM_VOLUME_STEP = 10
 BLANK_ICON_NAME = "pomowatcher-blank"
 BLANK_ICON_DIR = os.path.expanduser("~/.cache/pomowatcher")
 BLANK_ICON_PATH = os.path.join(BLANK_ICON_DIR, f"{BLANK_ICON_NAME}.svg")
@@ -64,7 +66,7 @@ def _normalize_bgm_volume(value):
         volume = int(value)
     except (TypeError, ValueError):
         return BGM_VOLUME_DEFAULT
-    if volume not in BGM_VOLUME_CHOICES:
+    if volume < BGM_VOLUME_MIN or volume > BGM_VOLUME_MAX:
         return BGM_VOLUME_DEFAULT
     return volume
 
@@ -632,19 +634,17 @@ class PomoWatcher:
 
         bgm_menu.append(Gtk.SeparatorMenuItem())
 
-        self.bgm_volume_menu_items = []
-        volume_group = None
-        for volume in BGM_VOLUME_CHOICES:
-            volume_item = Gtk.RadioMenuItem.new_with_label_from_widget(
-                volume_group,
-                f"音量 {volume}%",
-            )
-            if volume_group is None:
-                volume_group = volume_item
-            volume_item.set_active(volume == self.settings["bgm_volume"])
-            volume_item.connect("toggled", self._on_bgm_volume_toggle, volume)
-            self.bgm_volume_menu_items.append(volume_item)
-            bgm_menu.append(volume_item)
+        self.bgm_volume_label_item = Gtk.MenuItem(label="")
+        self.bgm_volume_label_item.set_sensitive(False)
+        bgm_menu.append(self.bgm_volume_label_item)
+
+        volume_up_item = Gtk.MenuItem(label="音量を上げる")
+        volume_up_item.connect("activate", self._on_bgm_volume_up)
+        bgm_menu.append(volume_up_item)
+
+        volume_down_item = Gtk.MenuItem(label="音量を下げる")
+        volume_down_item.connect("activate", self._on_bgm_volume_down)
+        bgm_menu.append(volume_down_item)
 
         bgm_menu.append(Gtk.SeparatorMenuItem())
 
@@ -657,6 +657,7 @@ class PomoWatcher:
         menu.append(quit_item)
 
         menu.show_all()
+        self._update_bgm_volume_label()
         indicator.set_menu(menu)
         return indicator
 
@@ -774,12 +775,22 @@ class PomoWatcher:
         if not muted and self._should_play_bgm_now():
             _start_bgm()
 
-    def _on_bgm_volume_toggle(self, item, volume):
-        if not item.get_active():
-            return
+    def _update_bgm_volume_label(self):
+        self.bgm_volume_label_item.set_label(f"音量: {self.settings['bgm_volume']}%")
+
+    def _change_bgm_volume(self, delta):
+        current = self.settings["bgm_volume"]
+        volume = max(BGM_VOLUME_MIN, min(BGM_VOLUME_MAX, current + delta))
         volume = _set_bgm_volume(volume)
         self.settings["bgm_volume"] = volume
         _save_settings(self.settings)
+        self._update_bgm_volume_label()
+
+    def _on_bgm_volume_up(self, *_):
+        self._change_bgm_volume(BGM_VOLUME_STEP)
+
+    def _on_bgm_volume_down(self, *_):
+        self._change_bgm_volume(-BGM_VOLUME_STEP)
 
     def _on_next_track(self, *_):
         if _next_bgm_track():
