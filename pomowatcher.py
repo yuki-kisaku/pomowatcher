@@ -627,6 +627,10 @@ class PomoWatcher:
         self.pause_menu_item.connect("activate", self._on_pause_toggle)
         pomodoro_menu.append(self.pause_menu_item)
 
+        restart_item = Gtk.MenuItem(label="再起動")
+        restart_item.connect("activate", self._on_restart)
+        pomodoro_menu.append(restart_item)
+
         bgm_item = Gtk.MenuItem(label="BGM")
         bgm_menu = Gtk.Menu()
         bgm_item.set_submenu(bgm_menu)
@@ -669,6 +673,29 @@ class PomoWatcher:
     def _on_quit(self, *_):
         _stop_bgm()
         Gtk.main_quit()
+
+    def _on_restart(self, *_):
+        try:
+            subprocess.Popen(
+                [
+                    "systemd-run",
+                    "--user",
+                    "--collect",
+                    "--unit=pomowatcher-restart",
+                    "systemctl",
+                    "--user",
+                    "restart",
+                    "pomowatcher.service",
+                ],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            logging.info("pomowatcher 再起動を要求")
+        except FileNotFoundError:
+            logging.warning("再起動できません: systemd-run が見つかりません")
+        except OSError as e:
+            logging.warning(f"再起動を要求できません: {e}")
 
     def _progress_icon(self) -> str:
         icons = ["○", "◔", "◑", "◕", "●"]
