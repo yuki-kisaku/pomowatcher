@@ -29,7 +29,7 @@ class PomowatcherWindowsAppTest(unittest.TestCase):
         return app
 
     @patch.object(pomowatcher_windows.threading, "Thread", return_value=Mock())
-    @patch.object(pomowatcher_windows.pystray, "Icon", return_value=Mock())
+    @patch.object(pomowatcher_windows, "WindowsTrayIcon", return_value=Mock())
     @patch.object(pomowatcher_windows, "WindowsNotifier", return_value=Mock())
     @patch.object(pomowatcher_windows, "MpvBgmPlayer", return_value=Mock())
     @patch.object(
@@ -100,6 +100,42 @@ class PomowatcherWindowsAppTest(unittest.TestCase):
                     progress_pixel_counts[1:],
                 )
             )
+        )
+
+    def test_左クリックでトレイメニューを開く(self) -> None:
+        icon = pomowatcher_windows.WindowsTrayIcon.__new__(
+            pomowatcher_windows.WindowsTrayIcon
+        )
+        icon._running = False
+        icon._icon_handle = None
+
+        with patch.object(
+            pomowatcher_windows.pystray.Icon,
+            "_on_notify",
+        ) as notify:
+            icon._on_notify(0, pomowatcher_windows.pystray_win32.WM_LBUTTONUP)
+
+        notify.assert_called_once_with(
+            0,
+            pomowatcher_windows.pystray_win32.WM_RBUTTONUP,
+        )
+
+    def test_右クリックでもトレイメニューを開く(self) -> None:
+        icon = pomowatcher_windows.WindowsTrayIcon.__new__(
+            pomowatcher_windows.WindowsTrayIcon
+        )
+        icon._running = False
+        icon._icon_handle = None
+
+        with patch.object(
+            pomowatcher_windows.pystray.Icon,
+            "_on_notify",
+        ) as notify:
+            icon._on_notify(0, pomowatcher_windows.pystray_win32.WM_RBUTTONUP)
+
+        notify.assert_called_once_with(
+            0,
+            pomowatcher_windows.pystray_win32.WM_RBUTTONUP,
         )
 
 

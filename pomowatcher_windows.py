@@ -22,6 +22,7 @@ if sys.platform != "win32":
     raise SystemExit("このファイルは Windows 11 専用です")
 
 import pystray
+from pystray._util import win32 as pystray_win32
 from PIL import Image, ImageDraw
 from windows_toasts import AudioSource, Toast, ToastAudio, WindowsToaster
 
@@ -325,6 +326,22 @@ class WindowsNotifier:
             logging.warning("通知を表示できません: %s", exc)
 
 
+class WindowsTrayIcon(pystray.Icon):
+    """本家と同じく左クリックでもメニューを開くトレイアイコン。"""
+
+    def _show_menu(self) -> None:
+        super()._on_notify(0, pystray_win32.WM_RBUTTONUP)
+
+    def _on_left_button_up(self, _wparam: int, _lparam: int) -> None:
+        self._show_menu()
+
+    def _on_notify(self, wparam: int, lparam: int) -> None:
+        if lparam == pystray_win32.WM_LBUTTONUP:
+            self._on_left_button_up(wparam, lparam)
+            return
+        super()._on_notify(wparam, lparam)
+
+
 class PomowatcherWindowsApp:
     def __init__(self, instance: SingleInstance) -> None:
         self.instance = instance
@@ -347,7 +364,7 @@ class PomowatcherWindowsApp:
         self.root = tk.Tk()
         self.root.withdraw()
 
-        self.tray = pystray.Icon(
+        self.tray = WindowsTrayIcon(
             "pomowatcher",
             self._render_tray_icon(TimerState.READY, 0),
             "Pomowatcher — 残り 50:00",
