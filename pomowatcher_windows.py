@@ -50,17 +50,8 @@ class LASTINPUTINFO(ctypes.Structure):
     _fields_ = [("cbSize", ctypes.c_uint), ("dwTime", ctypes.c_uint)]
 
 
-class RECT(ctypes.Structure):
-    _fields_ = [
-        ("left", ctypes.c_long),
-        ("top", ctypes.c_long),
-        ("right", ctypes.c_long),
-        ("bottom", ctypes.c_long),
-    ]
-
-
 def _configure_dpi_awareness() -> None:
-    """高DPI画面でも小窓の位置とサイズを正しく扱えるようにする。"""
+    """高DPI画面でもトレイアイコンを正しく扱えるようにする。"""
 
     try:
         ctypes.windll.user32.SetProcessDpiAwarenessContext(ctypes.c_void_p(-4))
@@ -79,15 +70,6 @@ def get_idle_ms() -> int:
     ctypes.windll.kernel32.GetTickCount.restype = ctypes.c_uint
     current = ctypes.windll.kernel32.GetTickCount()
     return ctypes.c_uint(current - info.dwTime).value
-
-
-def _work_area() -> RECT:
-    """タスクバーを除いたメイン画面の範囲を返す。"""
-
-    area = RECT()
-    if not ctypes.windll.user32.SystemParametersInfoW(0x0030, 0, ctypes.byref(area), 0):
-        raise ctypes.WinError()
-    return area
 
 
 def _setup_logging() -> None:
@@ -344,10 +326,6 @@ class WindowsNotifier:
 
 
 class PomowatcherWindowsApp:
-    WINDOW_WIDTH = 150
-    WINDOW_HEIGHT = 42
-    WINDOW_MARGIN = 12
-
     def __init__(self, instance: SingleInstance) -> None:
         self.instance = instance
         self.settings = _load_settings()
@@ -367,21 +345,7 @@ class PomowatcherWindowsApp:
         self._last_icon_key: tuple[TimerState, int] | None = None
 
         self.root = tk.Tk()
-        self.root.title("Pomowatcher")
-        self.root.overrideredirect(True)
-        self.root.attributes("-topmost", True)
-        self.root.configure(background="#202020")
-        self.label = tk.Label(
-            self.root,
-            text="○ 50:00",
-            font=("Segoe UI", 11, "bold"),
-            foreground="#f5f5f5",
-            background="#202020",
-            padx=10,
-            pady=7,
-        )
-        self.label.pack(fill="both", expand=True)
-        self._place_window()
+        self.root.withdraw()
 
         self.tray = pystray.Icon(
             "pomowatcher",
@@ -390,17 +354,6 @@ class PomowatcherWindowsApp:
             self._build_tray_menu(),
         )
         self.tray_thread = threading.Thread(target=self.tray.run, name="pomowatcher-tray", daemon=True)
-
-    def _place_window(self) -> None:
-        try:
-            area = _work_area()
-            x = area.right - self.WINDOW_WIDTH - self.WINDOW_MARGIN
-            y = area.bottom - self.WINDOW_HEIGHT - self.WINDOW_MARGIN
-        except OSError as exc:
-            logging.warning("作業領域を取得できません: %s", exc)
-            x = self.root.winfo_screenwidth() - self.WINDOW_WIDTH - self.WINDOW_MARGIN
-            y = self.root.winfo_screenheight() - self.WINDOW_HEIGHT - 60
-        self.root.geometry(f"{self.WINDOW_WIDTH}x{self.WINDOW_HEIGHT}+{x}+{y}")
 
     def _queue_action(self, name: str):
         def enqueue(_icon: pystray.Icon, _item: pystray.MenuItem) -> None:
@@ -514,18 +467,6 @@ class PomowatcherWindowsApp:
 
     def _refresh_view(self) -> None:
         snapshot = self.timer.snapshot()
-        if snapshot.state == TimerState.AWAITING_BREAK:
-            background = "#7a3100"
-        elif snapshot.state == TimerState.PAUSED:
-            background = "#454545"
-        else:
-            background = "#202020"
-
-        self.label.configure(text=snapshot.label, background=background)
-        self.root.configure(background=background)
-        self.root.attributes("-topmost", True)
-        self._place_window()
-
         self.tray.title = self._tray_status_text()
         icon_key = (snapshot.state, snapshot.progress_index)
         if icon_key != self._last_icon_key:
