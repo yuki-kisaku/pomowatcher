@@ -15,7 +15,6 @@ import winreg
 class WindowsMpvAdapter:
     def __init__(self) -> None:
         self.pipe_path = rf"\\.\pipe\pomowatcher-mpv-{os.getpid()}"
-        self.process: subprocess.Popen[bytes] | None = None
 
     @staticmethod
     def _find_executable() -> str | None:
@@ -59,14 +58,13 @@ class WindowsMpvAdapter:
         else:
             command.append("--loop-file=inf")
         command.append(str(path))
-        self.process = subprocess.Popen(
+        return subprocess.Popen(
             command,
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             creationflags=subprocess.CREATE_NO_WINDOW,
         )
-        return self.process
 
     def send(self, command: list[object]) -> bool:
         payload = json.dumps({"command": command}, ensure_ascii=False).encode("utf-8") + b"\n"
@@ -83,4 +81,4 @@ class WindowsMpvAdapter:
         return False
 
     def cleanup(self) -> None:
-        self.process = None
+        return None
