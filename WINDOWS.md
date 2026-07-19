@@ -27,14 +27,16 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1
 - `○ 50:00`から作業時間に合わせて残り時間が減ります。
 - 50分になるとWindows通知と通知音で休憩を促します。
 - 10分間操作しないと休憩完了と判断し、次の50分へ戻ります。
-- 通知領域のPomowatcherアイコンを右クリックすると、リセット、停止、再起動、BGM操作、終了ができます。
+- 通知領域のPomowatcherアイコンを左クリックまたは右クリックすると、リセット、停止、再起動、BGM操作、終了ができます。
 
 ## BGM
 
 `C:\Users\ユーザー名\Music\pomodoro-bgm\`へ音声ファイルを置くと、作業中にmpvでシャッフル再生します。
 単一ファイルの場合は、`pomodoro-bgm.mp3`のようにMusicフォルダーへ置きます。
 
-Windows版の初回対応には、ほかの音楽や動画を検知してBGMを自動停止する機能と、YouTubeからBGMを取得するコマンドは含まれません。
+ChromeのYouTubeやSpotifyなど、Windowsのメディア欄に表示されるほかの音楽・動画を再生すると、BGMを自動停止します。ほかのメディアを停止すると、作業中であればBGMを再開します。
+
+YouTubeからBGMを取得するコマンドはWindows版に含まれません。
 
 ## 設定とログ
 

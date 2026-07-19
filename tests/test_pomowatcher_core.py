@@ -1,6 +1,6 @@
 import unittest
 
-from pomowatcher_core import PomodoroTimer, TimerEvent, TimerState
+from pomowatcher_app.timer import PomodoroTimer, TimerEvent, TimerState
 
 
 class PomodoroTimerTest(unittest.TestCase):
@@ -29,6 +29,15 @@ class PomodoroTimerTest(unittest.TestCase):
 
         self.assertEqual(timer.snapshot().active_seconds, 5)
         self.assertEqual(timer.snapshot().label, "○ 01:35")
+
+    def test_定期更新の間も表示上の残り時間を進める(self) -> None:
+        timer = self.make_timer()
+        timer.update(idle_ms=0, now=1)
+
+        snapshot = timer.snapshot(now=6)
+
+        self.assertEqual(snapshot.active_seconds, 5)
+        self.assertEqual(snapshot.label, "○ 01:35")
 
     def test_短い離席では時間を保って再開する(self) -> None:
         timer = self.make_timer()

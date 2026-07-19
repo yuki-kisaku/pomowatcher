@@ -62,6 +62,33 @@ function Get-Winget {
     return $command.Source
 }
 
+function Get-MpvExecutable {
+    $command = Get-Command "mpv" -ErrorAction SilentlyContinue
+    if ($command) {
+        return $command.Source
+    }
+
+    $appPath = Get-ItemPropertyValue `
+        -LiteralPath "Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\mpv.exe" `
+        -Name "(default)" `
+        -ErrorAction SilentlyContinue
+    if ($appPath -and (Test-Path -LiteralPath $appPath -PathType Leaf)) {
+        return $appPath
+    }
+
+    $candidates = @(
+        (Join-Path $env:ProgramFiles "mpv\mpv.exe"),
+        (Join-Path $env:ProgramFiles "MPV Player\mpv.exe"),
+        (Join-Path $env:LOCALAPPDATA "Programs\mpv\mpv.exe")
+    )
+    foreach ($candidate in $candidates) {
+        if (Test-Path -LiteralPath $candidate -PathType Leaf) {
+            return $candidate
+        }
+    }
+    return $null
+}
+
 function Install-WingetPackage([string]$Id, [string]$Name) {
     $winget = Get-Winget
     Write-Step "$Name をインストール"
@@ -98,9 +125,14 @@ if (-not $python) {
 }
 
 Write-Step "mpvを確認"
-if (-not (Get-Command "mpv" -ErrorAction SilentlyContinue)) {
+if (-not (Get-MpvExecutable)) {
     Install-WingetPackage -Id "shinchiro.mpv" -Name "mpv"
 }
+$mpv = Get-MpvExecutable
+if (-not $mpv) {
+    throw "mpvのインストール後も実行ファイルを確認できませんでした。"
+}
+Write-Host "mpv: $mpv"
 
 Write-Step "Pomowatcher専用のPython環境を作成"
 if (-not (Test-Path -LiteralPath $VenvPython)) {
@@ -120,7 +152,7 @@ if ($LASTEXITCODE -ne 0) {
 if ($LASTEXITCODE -ne 0) {
     throw "Pythonパッケージのインストールに失敗しました。"
 }
-& $VenvPython -c "import PIL, pystray, windows_toasts"
+& $VenvPython -c "import PIL, pystray, windows_toasts, winrt.windows.media.control"
 if ($LASTEXITCODE -ne 0) {
     throw "Pythonパッケージの読み込み確認に失敗しました。"
 }
@@ -141,4 +173,4 @@ if (-not $NoLaunch) {
 
 Write-Host ""
 Write-Host "インストールが完了しました。" -ForegroundColor Green
-Write-Host "タイマーは画面右下に表示され、次回のWindowsログイン時にも自動で起動します。"
+Write-Host "タイマーは通知領域で動作し、次回のWindowsログイン時にも自動で起動します。"
