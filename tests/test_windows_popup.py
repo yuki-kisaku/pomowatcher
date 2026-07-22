@@ -1,3 +1,4 @@
+from collections.abc import Iterator
 import tkinter as tk
 import unittest
 
@@ -50,6 +51,10 @@ class TrayPopupTest(unittest.TestCase):
 
     def test_項目を展開しても表示位置がずれない(self) -> None:
         self.popup.show()
+        self.popup._anchor_x = self.popup.window.winfo_screenwidth() // 2
+        self.popup._anchor_y = self.popup.window.winfo_screenheight() // 2
+        self.popup.window.update_idletasks()
+        self.popup._move_near_anchor()
         self.popup.window.update_idletasks()
         initial_anchor = (
             self.popup.window.winfo_x() + self.popup.window.winfo_width(),
@@ -67,21 +72,32 @@ class TrayPopupTest(unittest.TestCase):
 
     def test_既存の操作をすべて実行できる(self) -> None:
         expected_actions = {
-            "reset",
-            "pause",
-            "restart",
-            "mute",
-            "volume_up",
-            "volume_down",
-            "next_track",
-            "quit",
+            "リセット": "reset",
+            "停止": "pause",
+            "再起動": "restart",
+            "ミュート": "mute",
+            "音量を上げる": "volume_up",
+            "音量を下げる": "volume_down",
+            "次の曲": "next_track",
+            "終了": "quit",
+        }
+        buttons = {
+            str(widget.cget("text")): widget
+            for widget in self._descendants(self.popup.container)
+            if isinstance(widget, (tk.Button, tk.Checkbutton))
+            and widget.cget("text") in expected_actions
         }
 
-        self.assertEqual(set(self.popup.action_buttons), expected_actions)
-        for action in expected_actions:
-            self.popup.action_buttons[action].invoke()
+        self.assertEqual(set(buttons), set(expected_actions))
+        for button in buttons.values():
+            button.invoke()
 
-        self.assertCountEqual(self.actions, expected_actions)
+        self.assertCountEqual(self.actions, expected_actions.values())
+
+    def _descendants(self, widget: tk.Misc) -> Iterator[tk.Misc]:
+        for child in widget.winfo_children():
+            yield child
+            yield from self._descendants(child)
 
 
 if __name__ == "__main__":

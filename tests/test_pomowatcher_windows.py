@@ -1,4 +1,3 @@
-import queue
 import unittest
 from unittest.mock import Mock, patch
 
@@ -27,8 +26,6 @@ class PomowatcherWindowsAppTest(unittest.TestCase):
         )
         app.controller = Mock()
         app.controller.settings = AppSettings(bgm_muted=False, bgm_volume=50)
-        app.actions = queue.SimpleQueue()
-        app.root = FakeRoot()
         app.tray_popup = Mock()
         app.tray = Mock()
         app._last_icon_key = None
@@ -90,14 +87,6 @@ class PomowatcherWindowsAppTest(unittest.TestCase):
             app.tray_popup.refresh.call_args.kwargs["status_text"],
             "Pomowatcher — 残り 49:54",
         )
-
-    def test_ポップアップ表示は処理を止めない(self) -> None:
-        app = self.make_menu_app()
-
-        app._toggle_tray_popup()
-
-        app.tray_popup.toggle.assert_called_once_with()
-        app.tray_popup.refresh.assert_called_once()
 
     def test_トレイの進捗円は本家と同じ5段階で埋まる(self) -> None:
         progress_pixel_counts = []

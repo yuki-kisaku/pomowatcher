@@ -35,7 +35,6 @@ class TrayPopup:
 
         self.container = tk.Frame(self.window, background=self.BACKGROUND)
         self.container.pack(fill="both", expand=True, padx=1, pady=1)
-        self.action_buttons: dict[str, tk.Button | tk.Checkbutton] = {}
 
         self.status_label = self._add_label("Pomowatcher — 残り 50:00")
         self._add_separator()
@@ -62,7 +61,7 @@ class TrayPopup:
             background=self.BACKGROUND,
         )
         self.bgm_muted_var = tk.BooleanVar(master=self.window, value=False)
-        self.mute_button = tk.Checkbutton(
+        mute_button = tk.Checkbutton(
             self.bgm_panel,
             text="ミュート",
             variable=self.bgm_muted_var,
@@ -78,8 +77,7 @@ class TrayPopup:
             padx=22,
             pady=5,
         )
-        self.mute_button.pack(fill="x")
-        self.action_buttons["mute"] = self.mute_button
+        mute_button.pack(fill="x")
         self.volume_label = tk.Label(
             self.bgm_panel,
             text="音量: 50%",
@@ -97,11 +95,10 @@ class TrayPopup:
         self._add_action_button(self.bgm_panel, "次の曲", "next_track")
 
         self._add_separator()
-        self.exit_button = self._add_button(
+        self._add_button(
             "終了",
             lambda: self._run_action("quit"),
         )
-        self.action_buttons["quit"] = self.exit_button
 
     def _add_label(self, text: str) -> tk.Label:
         label = tk.Label(
@@ -166,7 +163,6 @@ class TrayPopup:
             pady=5,
         )
         button.pack(fill="x")
-        self.action_buttons[action] = button
         return button
 
     def _add_separator(
