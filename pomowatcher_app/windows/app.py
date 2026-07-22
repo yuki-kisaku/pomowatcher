@@ -132,7 +132,7 @@ class PomowatcherWindowsApp:
         return self.controller.settings
 
     def _queue_action(self, name: str):
-        def enqueue(*_args: object) -> None:
+        def enqueue() -> None:
             self.actions.put(name)
 
         return enqueue
