@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 import pystray
 from pystray._util import win32 as pystray_win32
 from PIL import Image, ImageDraw
@@ -10,17 +12,23 @@ from ..timer import TimerState
 
 
 class WindowsTrayIcon(pystray.Icon):
-    """本家と同じく左クリックでもメニューを開くトレイアイコン。"""
+    """左右どちらのクリックでもアプリ側のメニューを開くトレイアイコン。"""
 
-    def _show_menu(self) -> None:
-        super()._on_notify(0, pystray_win32.WM_RBUTTONUP)
-
-    def _on_left_button_up(self, _wparam: int, _lparam: int) -> None:
-        self._show_menu()
+    def __init__(
+        self,
+        *args,
+        on_menu_requested: Callable[[], None],
+        **kwargs,
+    ) -> None:
+        self._on_menu_requested = on_menu_requested
+        super().__init__(*args, **kwargs)
 
     def _on_notify(self, wparam: int, lparam: int) -> None:
-        if lparam == pystray_win32.WM_LBUTTONUP:
-            self._on_left_button_up(wparam, lparam)
+        if lparam in (
+            pystray_win32.WM_LBUTTONUP,
+            pystray_win32.WM_RBUTTONUP,
+        ):
+            self._on_menu_requested()
             return
         super()._on_notify(wparam, lparam)
 

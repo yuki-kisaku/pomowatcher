@@ -18,8 +18,6 @@ import tkinter as tk
 if sys.platform != "win32":
     raise SystemExit("このファイルはWindows 11専用です")
 
-import pystray
-
 from ..app import PomowatcherController
 from ..bgm import MpvBgmPlayer
 from ..settings import AppSettings, SettingsStore
@@ -116,11 +114,12 @@ class PomowatcherWindowsApp:
 
         self.root = tk.Tk()
         self.root.withdraw()
+        self.tray_menu = self._build_tray_menu()
         self.tray = WindowsTrayIcon(
             "pomowatcher",
             render_tray_icon(TimerState.READY, 0),
             "Pomowatcher — 残り 50:00",
-            self._build_tray_menu(),
+            on_menu_requested=self._request_tray_menu,
         )
         self.tray_thread = threading.Thread(
             target=self.tray.run,
@@ -133,56 +132,66 @@ class PomowatcherWindowsApp:
         return self.controller.settings
 
     def _queue_action(self, name: str):
-        def enqueue(_icon: pystray.Icon, _item: pystray.MenuItem) -> None:
+        def enqueue(*_args: object) -> None:
             self.actions.put(name)
 
         return enqueue
 
-    @staticmethod
-    def _noop(_icon: pystray.Icon, _item: pystray.MenuItem) -> None:
-        return None
+    def _request_tray_menu(self) -> None:
+        self.actions.put("show_menu")
 
-    def _build_tray_menu(self) -> pystray.Menu:
-        return pystray.Menu(
-            pystray.MenuItem(
-                lambda _item: self._tray_status_text(),
-                self._noop,
-                enabled=False,
-            ),
-            pystray.Menu.SEPARATOR,
-            pystray.MenuItem(
-                "Pomodoro",
-                pystray.Menu(
-                    pystray.MenuItem("リセット", self._queue_action("reset")),
-                    pystray.MenuItem(
-                        lambda _item: "再開" if self.timer.paused else "停止",
-                        self._queue_action("pause"),
-                    ),
-                    pystray.MenuItem("再起動", self._queue_action("restart")),
-                ),
-            ),
-            pystray.MenuItem(
-                "BGM",
-                pystray.Menu(
-                    pystray.MenuItem(
-                        "ミュート",
-                        self._queue_action("mute"),
-                        checked=lambda _item: self.settings.bgm_muted,
-                    ),
-                    pystray.MenuItem(
-                        lambda _item: f"音量: {self.settings.bgm_volume}%",
-                        self._noop,
-                        enabled=False,
-                    ),
-                    pystray.MenuItem("音量を上げる", self._queue_action("volume_up")),
-                    pystray.MenuItem("音量を下げる", self._queue_action("volume_down")),
-                    pystray.Menu.SEPARATOR,
-                    pystray.MenuItem("次の曲", self._queue_action("next_track")),
-                ),
-            ),
-            pystray.Menu.SEPARATOR,
-            pystray.MenuItem("終了", self._queue_action("quit")),
+    def _build_tray_menu(self) -> tk.Menu:
+        menu = tk.Menu(self.root, tearoff=False)
+        menu.add_command(label=self._tray_status_text(), state=tk.DISABLED)
+        menu.add_separator()
+
+        self._pomodoro_menu = tk.Menu(menu, tearoff=False)
+        self._pomodoro_menu.add_command(
+            label="リセット",
+            command=self._queue_action("reset"),
         )
+        self._pomodoro_menu.add_command(
+            label="停止",
+            command=self._queue_action("pause"),
+        )
+        self._pomodoro_menu.add_command(
+            label="再起動",
+            command=self._queue_action("restart"),
+        )
+        menu.add_cascade(label="Pomodoro", menu=self._pomodoro_menu)
+
+        self._bgm_menu = tk.Menu(menu, tearoff=False)
+        self._bgm_muted_var = tk.BooleanVar(
+            master=self.root,
+            value=self.settings.bgm_muted,
+        )
+        self._bgm_menu.add_checkbutton(
+            label="ミュート",
+            variable=self._bgm_muted_var,
+            command=self._queue_action("mute"),
+        )
+        self._bgm_menu.add_command(
+            label=f"音量: {self.settings.bgm_volume}%",
+            state=tk.DISABLED,
+        )
+        self._bgm_menu.add_command(
+            label="音量を上げる",
+            command=self._queue_action("volume_up"),
+        )
+        self._bgm_menu.add_command(
+            label="音量を下げる",
+            command=self._queue_action("volume_down"),
+        )
+        self._bgm_menu.add_separator()
+        self._bgm_menu.add_command(
+            label="次の曲",
+            command=self._queue_action("next_track"),
+        )
+        menu.add_cascade(label="BGM", menu=self._bgm_menu)
+
+        menu.add_separator()
+        menu.add_command(label="終了", command=self._queue_action("quit"))
+        return menu
 
     def _tray_status_text(self) -> str:
         snapshot = self.timer.snapshot()
@@ -207,15 +216,29 @@ class PomowatcherWindowsApp:
 
     def _refresh_view(self) -> None:
         snapshot = self.timer.snapshot()
-        self.tray.title = self._tray_status_text()
+        status_text = self._tray_status_text()
+        self.tray.title = status_text
+        self.tray_menu.entryconfigure(0, label=status_text)
+        self._pomodoro_menu.entryconfigure(
+            1,
+            label="再開" if self.timer.paused else "停止",
+        )
+        self._bgm_muted_var.set(self.settings.bgm_muted)
+        self._bgm_menu.entryconfigure(
+            1,
+            label=f"音量: {self.settings.bgm_volume}%",
+        )
         icon_key = (snapshot.state, snapshot.progress_index)
         if icon_key != self._last_icon_key:
             self.tray.icon = render_tray_icon(*icon_key)
             self._last_icon_key = icon_key
-        try:
-            self.tray.update_menu()
-        except (AttributeError, RuntimeError):
-            pass
+
+    def _show_tray_menu(self) -> None:
+        self._refresh_view()
+        self.tray_menu.tk_popup(
+            self.root.winfo_pointerx(),
+            self.root.winfo_pointery(),
+        )
 
     def _drain_actions(self) -> None:
         while True:
@@ -229,7 +252,9 @@ class PomowatcherWindowsApp:
                 logging.exception("トレイ操作に失敗しました: %s", action)
 
     def _handle_action(self, action: str) -> None:
-        if action == "reset":
+        if action == "show_menu":
+            self._show_tray_menu()
+        elif action == "reset":
             self.controller.reset(now=time.monotonic())
         elif action == "pause":
             self.controller.toggle_pause(idle_ms=get_idle_ms(), now=time.monotonic())
