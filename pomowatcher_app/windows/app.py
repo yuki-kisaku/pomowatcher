@@ -26,6 +26,7 @@ from .bgm import WindowsMpvAdapter
 from .idle import configure_dpi_awareness, get_idle_ms
 from .media_monitor import WindowsMediaMonitor
 from .notification import WindowsNotifier
+from .popup import TrayPopup
 from .tray import WindowsTrayIcon, render_tray_icon
 
 
@@ -114,7 +115,7 @@ class PomowatcherWindowsApp:
 
         self.root = tk.Tk()
         self.root.withdraw()
-        self.tray_menu = self._build_tray_menu()
+        self.tray_popup = TrayPopup(self.root, self.actions.put)
         self.tray = WindowsTrayIcon(
             "pomowatcher",
             render_tray_icon(TimerState.READY, 0),
@@ -131,67 +132,8 @@ class PomowatcherWindowsApp:
     def settings(self) -> AppSettings:
         return self.controller.settings
 
-    def _queue_action(self, name: str):
-        def enqueue() -> None:
-            self.actions.put(name)
-
-        return enqueue
-
     def _request_tray_menu(self) -> None:
         self.actions.put("show_menu")
-
-    def _build_tray_menu(self) -> tk.Menu:
-        menu = tk.Menu(self.root, tearoff=False)
-        menu.add_command(label=self._tray_status_text(), state=tk.DISABLED)
-        menu.add_separator()
-
-        self._pomodoro_menu = tk.Menu(menu, tearoff=False)
-        self._pomodoro_menu.add_command(
-            label="リセット",
-            command=self._queue_action("reset"),
-        )
-        self._pomodoro_menu.add_command(
-            label="停止",
-            command=self._queue_action("pause"),
-        )
-        self._pomodoro_menu.add_command(
-            label="再起動",
-            command=self._queue_action("restart"),
-        )
-        menu.add_cascade(label="Pomodoro", menu=self._pomodoro_menu)
-
-        self._bgm_menu = tk.Menu(menu, tearoff=False)
-        self._bgm_muted_var = tk.BooleanVar(
-            master=self.root,
-            value=self.settings.bgm_muted,
-        )
-        self._bgm_menu.add_checkbutton(
-            label="ミュート",
-            variable=self._bgm_muted_var,
-            command=self._queue_action("mute"),
-        )
-        self._bgm_menu.add_command(
-            label=f"音量: {self.settings.bgm_volume}%",
-            state=tk.DISABLED,
-        )
-        self._bgm_menu.add_command(
-            label="音量を上げる",
-            command=self._queue_action("volume_up"),
-        )
-        self._bgm_menu.add_command(
-            label="音量を下げる",
-            command=self._queue_action("volume_down"),
-        )
-        self._bgm_menu.add_separator()
-        self._bgm_menu.add_command(
-            label="次の曲",
-            command=self._queue_action("next_track"),
-        )
-        menu.add_cascade(label="BGM", menu=self._bgm_menu)
-
-        menu.add_separator()
-        menu.add_command(label="終了", command=self._queue_action("quit"))
-        return menu
 
     def _tray_status_text(self) -> str:
         snapshot = self.timer.snapshot()
@@ -218,27 +160,20 @@ class PomowatcherWindowsApp:
         snapshot = self.timer.snapshot()
         status_text = self._tray_status_text()
         self.tray.title = status_text
-        self.tray_menu.entryconfigure(0, label=status_text)
-        self._pomodoro_menu.entryconfigure(
-            1,
-            label="再開" if self.timer.paused else "停止",
-        )
-        self._bgm_muted_var.set(self.settings.bgm_muted)
-        self._bgm_menu.entryconfigure(
-            1,
-            label=f"音量: {self.settings.bgm_volume}%",
+        self.tray_popup.refresh(
+            status_text=status_text,
+            paused=self.timer.paused,
+            bgm_muted=self.settings.bgm_muted,
+            bgm_volume=self.settings.bgm_volume,
         )
         icon_key = (snapshot.state, snapshot.progress_index)
         if icon_key != self._last_icon_key:
             self.tray.icon = render_tray_icon(*icon_key)
             self._last_icon_key = icon_key
 
-    def _show_tray_menu(self) -> None:
+    def _toggle_tray_popup(self) -> None:
         self._refresh_view()
-        self.tray_menu.tk_popup(
-            self.root.winfo_pointerx(),
-            self.root.winfo_pointery(),
-        )
+        self.tray_popup.toggle()
 
     def _drain_actions(self) -> None:
         while True:
@@ -253,7 +188,7 @@ class PomowatcherWindowsApp:
 
     def _handle_action(self, action: str) -> None:
         if action == "show_menu":
-            self._show_tray_menu()
+            self._toggle_tray_popup()
         elif action == "reset":
             self.controller.reset(now=time.monotonic())
         elif action == "pause":
@@ -294,6 +229,7 @@ class PomowatcherWindowsApp:
         if self._stopping:
             return
         self._stopping = True
+        self.tray_popup.hide()
         self.media_monitor.stop()
         self.bgm.stop()
         try:
