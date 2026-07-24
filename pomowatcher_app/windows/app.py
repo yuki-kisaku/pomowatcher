@@ -21,6 +21,7 @@ if sys.platform != "win32":
 from ..app import PomowatcherController
 from ..bgm import MpvBgmPlayer
 from ..settings import AppSettings, SettingsStore
+from ..sync import StateCoordinator, StateStore, SyncClient
 from ..timer import PomodoroTimer, TimerState
 from .bgm import WindowsMpvAdapter
 from .idle import configure_dpi_awareness, get_idle_ms
@@ -37,6 +38,8 @@ POLL_INTERVAL_MS = 500
 
 APP_DIR = Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local")) / "pomowatcher"
 SETTINGS_PATH = APP_DIR / "settings.json"
+STATE_PATH = APP_DIR / "state.json"
+DEVICE_ID_PATH = APP_DIR / "device-id"
 LOG_PATH = APP_DIR / "pomowatcher.log"
 BGM_DIR = Path.home() / "Music" / "pomodoro-bgm"
 BGM_FILE_CANDIDATES = tuple(
@@ -93,6 +96,17 @@ class PomowatcherWindowsApp:
             active_limit_ms=ACTIVE_LIMIT_MS,
             now=time.monotonic(),
         )
+        sync_url = os.environ.get("POMOWATCHER_SYNC_URL", "").strip()
+        self.state = StateCoordinator(
+            timer=self.timer,
+            store=StateStore(STATE_PATH),
+            sync_client=SyncClient(
+                sync_url,
+                os.environ.get("POMOWATCHER_SYNC_TOKEN", ""),
+            ) if sync_url else None,
+            device_id_path=DEVICE_ID_PATH,
+            now=time.monotonic(),
+        )
         self.bgm = MpvBgmPlayer(
             adapter=WindowsMpvAdapter(),
             bgm_dir=BGM_DIR,
@@ -108,6 +122,7 @@ class PomowatcherWindowsApp:
             save_settings=self.settings_store.save,
             notify_work_limit=self.notifier.work_limit_reached,
         )
+        self.controller.reconcile_timer_state()
         self.media_monitor = WindowsMediaMonitor()
         self.actions: queue.SimpleQueue[str] = queue.SimpleQueue()
         self._stopping = False
@@ -149,7 +164,14 @@ class PomowatcherWindowsApp:
             return
         try:
             self.controller.set_other_media_playing(self.media_monitor.is_playing())
-            self.controller.tick(idle_ms=get_idle_ms(), now=time.monotonic())
+            idle_ms = get_idle_ms()
+            self.controller.tick(idle_ms=idle_ms, now=time.monotonic())
+            state_changed = self.state.synchronize(
+                now=time.monotonic(),
+                allow_push=idle_ms <= ACTIVE_LIMIT_MS,
+            )
+            if state_changed:
+                self.controller.reconcile_timer_state()
         except OSError as exc:
             logging.warning("入力状態を取得できません: %s", exc)
         self._drain_actions()
@@ -205,6 +227,8 @@ class PomowatcherWindowsApp:
             self._restart()
         elif action == "quit":
             self._quit()
+        if action not in {"show_menu", "restart", "quit"}:
+            self.state.synchronize(now=time.monotonic(), force_push=True)
 
     def _restart(self) -> None:
         logging.info("再起動")
@@ -232,6 +256,7 @@ class PomowatcherWindowsApp:
         self.tray_popup.hide()
         self.media_monitor.stop()
         self.bgm.stop()
+        self.state.save_local()
         try:
             self.tray.stop()
         except RuntimeError:

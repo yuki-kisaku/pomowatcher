@@ -3,10 +3,11 @@ Description=Pomodoro Work Time Watcher
 After=graphical-session.target
 
 [Service]
-ExecStart=/usr/bin/python3 /home/yuki/.local/bin/pomowatcher.py
+EnvironmentFile=-%h/.config/pomowatcher/client.env
+ExecStart=/usr/bin/python3 %h/.local/bin/pomowatcher.py
 Restart=on-failure
 RestartSec=10
-Environment=DISPLAY=:0
+PassEnvironment=DISPLAY WAYLAND_DISPLAY XDG_RUNTIME_DIR DBUS_SESSION_BUS_ADDRESS XDG_SESSION_TYPE
 
 [Install]
 WantedBy=default.target

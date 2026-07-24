@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 from enum import Enum
+from typing import Any
 
 
 class TimerEvent(str, Enum):
@@ -127,6 +128,37 @@ class PomodoroTimer:
         """手動停止を切り替え、停止中の経過時間を作業時間から除外する。"""
 
         self.paused = paused
+        self._last_update = now
+
+    def export_state(self) -> dict[str, Any]:
+        """別プロセスでも復元できるタイマー状態を返す。"""
+
+        return {
+            "active_seconds": self.active_seconds,
+            "paused": self.paused,
+            "was_on_break": self.was_on_break,
+            "awaiting_break": self.awaiting_break,
+            "is_idle": self.is_idle,
+        }
+
+    def restore_state(self, state: dict[str, Any], *, now: float) -> None:
+        """保存済み状態を検証し、現在のタイマーへ反映する。"""
+
+        try:
+            active_seconds = float(state.get("active_seconds", 0))
+        except (TypeError, ValueError):
+            active_seconds = 0.0
+        self.active_seconds = min(
+            float(self.work_threshold_sec),
+            max(0.0, active_seconds),
+        )
+        self.paused = state.get("paused") is True
+        self.was_on_break = state.get("was_on_break") is True
+        self.awaiting_break = state.get("awaiting_break") is True
+        self.is_idle = state.get("is_idle") is True
+        if self.awaiting_break:
+            self.active_seconds = float(self.work_threshold_sec)
+            self.was_on_break = False
         self._last_update = now
 
     def snapshot(self, *, now: float | None = None) -> TimerSnapshot:

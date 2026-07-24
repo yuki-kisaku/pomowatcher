@@ -47,6 +47,28 @@ class PomowatcherControllerTest(unittest.TestCase):
         controller.set_other_media_playing(False)
         bgm.start.assert_not_called()
 
+    def test_復元した作業状態でBGMを開始する(self) -> None:
+        controller, bgm = self.make_controller()
+        controller.timer.restore_state(
+            {"active_seconds": 10, "was_on_break": False},
+            now=1,
+        )
+
+        controller.reconcile_timer_state()
+
+        bgm.start.assert_called_once_with()
+
+    def test_復元した停止状態でBGMを停止する(self) -> None:
+        controller, bgm = self.make_controller()
+        controller.timer.restore_state(
+            {"active_seconds": 10, "paused": True},
+            now=1,
+        )
+
+        controller.reconcile_timer_state()
+
+        bgm.pause.assert_called_once_with("app")
+
 
 if __name__ == "__main__":
     unittest.main()

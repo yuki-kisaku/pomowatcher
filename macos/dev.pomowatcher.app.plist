@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>dev.pomowatcher.app</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>__PYTHON__</string>
+    <string>__SCRIPT__</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>POMOWATCHER_SYNC_URL</key>
+    <string>__SYNC_URL__</string>
+    <key>POMOWATCHER_SYNC_TOKEN</key>
+    <string>__SYNC_TOKEN__</string>
+  </dict>
+  <key>KeepAlive</key>
+  <true/>
+</dict>
+</plist>

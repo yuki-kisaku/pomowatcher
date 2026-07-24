@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -16,6 +17,7 @@ from gi.repository import Gtk, GLib
 from ..app import PomowatcherController
 from ..bgm import MpvBgmPlayer
 from ..settings import SettingsStore
+from ..sync import StateCoordinator, StateStore, SyncClient
 from ..timer import PomodoroTimer
 from .bgm import LinuxMpvAdapter
 from .idle import get_idle_ms, start_input_watchers
@@ -31,6 +33,8 @@ CHECK_INTERVAL_SEC = 30
 MEDIA_INTERVAL_SEC = 2
 
 SETTINGS_PATH = Path.home() / ".config" / "pomowatcher" / "settings.json"
+STATE_PATH = Path.home() / ".local" / "state" / "pomowatcher" / "state.json"
+DEVICE_ID_PATH = Path.home() / ".config" / "pomowatcher" / "device-id"
 BGM_DIR = Path.home() / "Music" / "pomodoro-bgm"
 BGM_FILE_CANDIDATES = tuple(
     BGM_DIR.with_suffix(ext) for ext in (".mp3", ".ogg", ".flac", ".m4a", ".opus", ".webm")
@@ -62,6 +66,17 @@ class PomoWatcher:
             active_limit_ms=active_limit_ms,
             now=time.monotonic(),
         )
+        sync_url = os.environ.get("POMOWATCHER_SYNC_URL", "").strip()
+        self.state = StateCoordinator(
+            timer=self.timer,
+            store=StateStore(STATE_PATH),
+            sync_client=SyncClient(
+                sync_url,
+                os.environ.get("POMOWATCHER_SYNC_TOKEN", ""),
+            ) if sync_url else None,
+            device_id_path=DEVICE_ID_PATH,
+            now=time.monotonic(),
+        )
         self.bgm = MpvBgmPlayer(
             adapter=LinuxMpvAdapter(),
             bgm_dir=BGM_DIR,
@@ -76,6 +91,7 @@ class PomoWatcher:
             save_settings=self.settings_store.save,
             notify_work_limit=LinuxNotifier().work_limit_reached,
         )
+        self.controller.reconcile_timer_state()
         self.media_monitor = MprisMediaMonitor(lambda: self.bgm.process_id)
         self.tray = LinuxTray(
             settings=settings,
@@ -96,7 +112,14 @@ class PomoWatcher:
         logging.info("pomowatcher開始")
 
     def _poll(self) -> bool:
-        self.controller.tick(idle_ms=get_idle_ms(), now=time.monotonic())
+        idle_ms = get_idle_ms()
+        self.controller.tick(idle_ms=idle_ms, now=time.monotonic())
+        state_changed = self.state.synchronize(
+            now=time.monotonic(),
+            allow_push=idle_ms <= self.timer.active_limit_ms,
+        )
+        if state_changed:
+            self.controller.reconcile_timer_state()
         self._refresh_tray()
         return True
 
@@ -124,10 +147,12 @@ class PomoWatcher:
 
     def _on_reset(self) -> None:
         self.controller.reset(now=time.monotonic())
+        self.state.synchronize(now=time.monotonic(), force_push=True)
         self._refresh_tray()
 
     def _on_pause(self) -> None:
         self.controller.toggle_pause(idle_ms=get_idle_ms(), now=time.monotonic())
+        self.state.synchronize(now=time.monotonic(), force_push=True)
         self._refresh_tray()
 
     def _on_mute(self, muted: bool) -> None:
@@ -164,6 +189,7 @@ class PomoWatcher:
             logging.warning("再起動を要求できません: %s", exc)
 
     def _on_quit(self) -> None:
+        self.state.save_local()
         self.bgm.stop()
         Gtk.main_quit()
 

@@ -126,6 +126,23 @@ class PomowatcherController:
         if not self.bgm.next_track():
             self._start_bgm_if_working()
 
+    def reconcile_timer_state(self) -> None:
+        """保存・同期から復元したタイマー状態をBGMへ反映する。"""
+
+        state = self.timer.snapshot().state
+        if state == TimerState.PAUSED:
+            self.bgm.pause("app")
+            return
+        self.bgm.release("app")
+        if state == TimerState.IDLE:
+            self.bgm.pause("idle")
+            return
+        self.bgm.release("idle")
+        if state == TimerState.WORKING:
+            self._start_bgm_if_working()
+        else:
+            self.bgm.stop()
+
     def _start_bgm_if_working(self) -> None:
         if self.timer.snapshot().state != TimerState.WORKING:
             return

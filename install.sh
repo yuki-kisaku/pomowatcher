@@ -5,7 +5,9 @@ REPO="$(cd "$(dirname "$0")" && pwd)"
 echo "==> シンボリックリンクを張る"
 mkdir -p ~/.local/bin ~/.config/systemd/user
 ln -sf "$REPO/pomowatcher.py"      ~/.local/bin/pomowatcher.py
+ln -sf "$REPO/pomowatcher_sync_server.py" ~/.local/bin/pomowatcher_sync_server.py
 ln -sf "$REPO/pomowatcher.service" ~/.config/systemd/user/pomowatcher.service
+ln -sf "$REPO/pomowatcher-sync.service" ~/.config/systemd/user/pomowatcher-sync.service
 
 echo "==> udev ルールを配置（sudo パスワード要求あり）"
 sudo cp "$REPO/99-pomowatcher.rules" /etc/udev/rules.d/
