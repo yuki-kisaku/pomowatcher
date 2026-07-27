@@ -11,7 +11,7 @@ class WindowsNotifier:
 
     def work_limit_reached(self) -> None:
         toast = Toast()
-        toast.text_fields = ["作業50分経過", "そろそろ休憩しましょう！"]
+        toast.text_fields = ["50 Minutes Complete", "Time for a break!"]
         toast.audio = ToastAudio(AudioSource.Reminder)
         try:
             self._toaster.show_toast(toast)

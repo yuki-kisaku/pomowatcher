@@ -9,8 +9,8 @@ class MacNotifier:
             [
                 "osascript",
                 "-e",
-                'display notification "そろそろ休憩しましょう！" '
-                'with title "作業50分経過" sound name "Glass"',
+                'display notification "Time for a break!" '
+                'with title "50 Minutes Complete" sound name "Glass"',
             ],
             check=False,
         )

@@ -17,7 +17,8 @@ class TrayPopupTest(unittest.TestCase):
 
     def test_表示したまま残り時間を更新できる(self) -> None:
         self.popup.refresh(
-            status_text="Pomowatcher — 残り 49:55",
+            status_text="Remaining 49:55",
+            today_text="Today 3h 25m",
             paused=False,
             bgm_muted=False,
             bgm_volume=50,
@@ -25,7 +26,8 @@ class TrayPopupTest(unittest.TestCase):
 
         self.popup.show()
         self.popup.refresh(
-            status_text="Pomowatcher — 残り 49:54",
+            status_text="Remaining 49:54",
+            today_text="Today 3h 25m",
             paused=False,
             bgm_muted=False,
             bgm_volume=50,
@@ -34,20 +36,22 @@ class TrayPopupTest(unittest.TestCase):
         self.assertEqual(self.popup.window.state(), "normal")
         self.assertEqual(
             self.popup.status_label.cget("text"),
-            "Pomowatcher — 残り 49:54",
+            "Remaining 49:54",
         )
+        self.assertEqual(self.popup.today_label.cget("text"), "Today 3h 25m")
 
     def test_停止とBGM設定を表示へ反映する(self) -> None:
         self.popup.refresh(
-            status_text="Pomowatcher — 停止中",
+            status_text="Paused",
+            today_text="Today 1h 10m",
             paused=True,
             bgm_muted=True,
             bgm_volume=70,
         )
 
-        self.assertEqual(self.popup.pause_button.cget("text"), "再開")
+        self.assertEqual(self.popup.pause_button.cget("text"), "Resume")
         self.assertTrue(self.popup.bgm_muted_var.get())
-        self.assertEqual(self.popup.volume_label.cget("text"), "音量: 70%")
+        self.assertEqual(self.popup.volume_label.cget("text"), "Volume: 70%")
 
     def test_項目を展開しても表示位置がずれない(self) -> None:
         self.popup.show()
@@ -72,14 +76,14 @@ class TrayPopupTest(unittest.TestCase):
 
     def test_既存の操作をすべて実行できる(self) -> None:
         expected_actions = {
-            "リセット": "reset",
-            "停止": "pause",
-            "再起動": "restart",
-            "ミュート": "mute",
-            "音量を上げる": "volume_up",
-            "音量を下げる": "volume_down",
-            "次の曲": "next_track",
-            "終了": "quit",
+            "Reset": "reset",
+            "Pause": "pause",
+            "Restart": "restart",
+            "Mute": "mute",
+            "Volume Up": "volume_up",
+            "Volume Down": "volume_down",
+            "Next Track": "next_track",
+            "Quit": "quit",
         }
         buttons = {
             str(widget.cget("text")): widget

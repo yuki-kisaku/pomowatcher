@@ -15,6 +15,7 @@ if sys.platform != "darwin":
 import rumps
 
 from ..app import PomowatcherController
+from ..activity import ActivityLog, format_duration
 from ..bgm import MpvBgmPlayer
 from ..settings import SettingsStore
 from ..sync import StateCoordinator, StateStore, SyncClient
@@ -30,6 +31,7 @@ ACTIVE_LIMIT_MS = 30 * 1000
 APP_DIR = Path.home() / "Library" / "Application Support" / "Pomowatcher"
 SETTINGS_PATH = APP_DIR / "settings.json"
 STATE_PATH = APP_DIR / "state.json"
+ACTIVITY_PATH = APP_DIR / "activity.sqlite3"
 DEVICE_ID_PATH = APP_DIR / "device-id"
 BGM_DIR = Path.home() / "Music" / "pomodoro-bgm"
 BGM_FILE_CANDIDATES = tuple(
@@ -47,6 +49,10 @@ class PomowatcherMacApp(rumps.App):
             break_threshold_sec=IDLE_THRESHOLD_SEC,
             active_limit_ms=ACTIVE_LIMIT_MS,
             now=time.monotonic(),
+        )
+        self.activity = ActivityLog(
+            ACTIVITY_PATH,
+            active_limit_ms=ACTIVE_LIMIT_MS,
         )
         sync_url = os.environ.get("POMOWATCHER_SYNC_URL", "").strip()
         self.state = StateCoordinator(
@@ -72,28 +78,33 @@ class PomowatcherMacApp(rumps.App):
             notify_work_limit=MacNotifier().work_limit_reached,
         )
         self.controller.reconcile_timer_state()
-        self.pause_item = rumps.MenuItem("停止", callback=self.toggle_pause)
-        self.mute_item = rumps.MenuItem("ミュート", callback=self.toggle_mute)
-        self.volume_item = rumps.MenuItem(f"音量: {settings.bgm_volume}%")
+        self.remaining_item = rumps.MenuItem("Remaining 50:00")
+        self.today_item = rumps.MenuItem("Today 0m")
+        self.pause_item = rumps.MenuItem("Pause", callback=self.toggle_pause)
+        self.mute_item = rumps.MenuItem("Mute", callback=self.toggle_mute)
+        self.volume_item = rumps.MenuItem(f"Volume: {settings.bgm_volume}%")
         pomodoro_menu = rumps.MenuItem("Pomodoro")
-        pomodoro_menu.add(rumps.MenuItem("リセット", callback=self.reset))
+        pomodoro_menu.add(rumps.MenuItem("Reset", callback=self.reset))
         pomodoro_menu.add(self.pause_item)
-        pomodoro_menu.add(rumps.MenuItem("再起動", callback=self.restart))
+        pomodoro_menu.add(rumps.MenuItem("Restart", callback=self.restart))
         bgm_menu = rumps.MenuItem("BGM")
         bgm_menu.add(self.mute_item)
         bgm_menu.add(rumps.separator)
         bgm_menu.add(self.volume_item)
-        bgm_menu.add(rumps.MenuItem("音量を上げる", callback=lambda _: self.volume(True)))
-        bgm_menu.add(rumps.MenuItem("音量を下げる", callback=lambda _: self.volume(False)))
+        bgm_menu.add(rumps.MenuItem("Volume Up", callback=lambda _: self.volume(True)))
+        bgm_menu.add(rumps.MenuItem("Volume Down", callback=lambda _: self.volume(False)))
         bgm_menu.add(rumps.separator)
         bgm_menu.add(
-            rumps.MenuItem("次の曲", callback=lambda _: self.controller.next_track())
+            rumps.MenuItem("Next Track", callback=lambda _: self.controller.next_track())
         )
         self.menu = [
+            self.remaining_item,
+            self.today_item,
+            None,
             pomodoro_menu,
             bgm_menu,
             None,
-            rumps.MenuItem("終了", callback=self.quit_app),
+            rumps.MenuItem("Quit", callback=self.quit_app),
         ]
         self.mute_item.state = settings.bgm_muted
         self.poll = rumps.Timer(self.tick, 0.5)
@@ -102,14 +113,28 @@ class PomowatcherMacApp(rumps.App):
     def _refresh(self) -> None:
         snapshot = self.timer.snapshot(now=time.monotonic())
         self.title = snapshot.label
-        self.pause_item.title = "再開" if snapshot.state == TimerState.PAUSED else "停止"
+        if snapshot.state == TimerState.PAUSED:
+            remaining_text = "Paused"
+        elif snapshot.state == TimerState.AWAITING_BREAK:
+            remaining_text = "Take a break!"
+        else:
+            minutes, seconds = divmod(snapshot.remaining_seconds, 60)
+            remaining_text = f"Remaining {minutes:02d}:{seconds:02d}"
+        self.remaining_item.title = remaining_text
+        self.today_item.title = f"Today {format_duration(self.activity.today_seconds())}"
+        self.pause_item.title = "Resume" if snapshot.state == TimerState.PAUSED else "Pause"
         self.mute_item.state = self.controller.settings.bgm_muted
-        self.volume_item.title = f"音量: {self.controller.settings.bgm_volume}%"
+        self.volume_item.title = f"Volume: {self.controller.settings.bgm_volume}%"
 
     def tick(self, _=None) -> None:
         now = time.monotonic()
         idle_ms = get_idle_ms()
         self.controller.tick(idle_ms=idle_ms, now=now)
+        self.activity.update(
+            idle_ms=idle_ms,
+            paused=self.timer.paused,
+            now=time.time(),
+        )
         state_changed = self.state.synchronize(
             now=now,
             allow_push=idle_ms <= ACTIVE_LIMIT_MS,
@@ -120,11 +145,22 @@ class PomowatcherMacApp(rumps.App):
 
     def reset(self, _=None) -> None:
         self.controller.reset(now=time.monotonic())
+        self.activity.update(
+            idle_ms=get_idle_ms(),
+            paused=self.timer.paused,
+            now=time.time(),
+        )
         self.state.synchronize(now=time.monotonic(), force_push=True)
         self._refresh()
 
     def toggle_pause(self, _=None) -> None:
-        self.controller.toggle_pause(idle_ms=get_idle_ms(), now=time.monotonic())
+        idle_ms = get_idle_ms()
+        self.controller.toggle_pause(idle_ms=idle_ms, now=time.monotonic())
+        self.activity.update(
+            idle_ms=idle_ms,
+            paused=self.timer.paused,
+            now=time.time(),
+        )
         self.state.synchronize(now=time.monotonic(), force_push=True)
         self._refresh()
 
@@ -143,6 +179,7 @@ class PomowatcherMacApp(rumps.App):
     def quit_app(self, _=None) -> None:
         self.state.save_local()
         self.controller.bgm.stop()
+        self.activity.close()
         rumps.quit_application()
 
 

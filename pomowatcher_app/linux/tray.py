@@ -12,8 +12,9 @@ gi.require_version("Gtk", "3.0")
 gi.require_version("AyatanaAppIndicator3", "0.1")
 from gi.repository import Gtk, AyatanaAppIndicator3 as AppIndicator3
 
+from ..activity import format_duration
 from ..settings import AppSettings
-from ..timer import TimerSnapshot
+from ..timer import TimerSnapshot, TimerState
 
 
 BLANK_ICON_NAME = "pomowatcher-blank"
@@ -56,18 +57,26 @@ class LinuxTray:
         self.indicator.set_label("○ 50:00", "○ 50:00")
 
         menu = Gtk.Menu()
+        self.remaining_item = Gtk.MenuItem(label="Remaining 50:00")
+        self.remaining_item.set_sensitive(False)
+        menu.append(self.remaining_item)
+        self.today_item = Gtk.MenuItem(label="Today 0m")
+        self.today_item.set_sensitive(False)
+        menu.append(self.today_item)
+        menu.append(Gtk.SeparatorMenuItem())
+
         pomodoro_item = Gtk.MenuItem(label="Pomodoro")
         pomodoro_menu = Gtk.Menu()
         pomodoro_item.set_submenu(pomodoro_menu)
         menu.append(pomodoro_item)
 
-        reset_item = Gtk.MenuItem(label="リセット")
+        reset_item = Gtk.MenuItem(label="Reset")
         reset_item.connect("activate", lambda *_: on_reset())
         pomodoro_menu.append(reset_item)
-        self.pause_item = Gtk.MenuItem(label="停止")
+        self.pause_item = Gtk.MenuItem(label="Pause")
         self.pause_item.connect("activate", lambda *_: on_pause())
         pomodoro_menu.append(self.pause_item)
-        restart_item = Gtk.MenuItem(label="再起動")
+        restart_item = Gtk.MenuItem(label="Restart")
         restart_item.connect("activate", lambda *_: on_restart())
         pomodoro_menu.append(restart_item)
 
@@ -75,34 +84,50 @@ class LinuxTray:
         bgm_menu = Gtk.Menu()
         bgm_item.set_submenu(bgm_menu)
         menu.append(bgm_item)
-        self.mute_item = Gtk.CheckMenuItem(label="ミュート")
+        self.mute_item = Gtk.CheckMenuItem(label="Mute")
         self.mute_item.set_active(settings.bgm_muted)
         self.mute_item.connect("toggled", lambda item: on_mute(item.get_active()))
         bgm_menu.append(self.mute_item)
         bgm_menu.append(Gtk.SeparatorMenuItem())
-        self.volume_item = Gtk.MenuItem(label=f"音量: {settings.bgm_volume}%")
+        self.volume_item = Gtk.MenuItem(label=f"Volume: {settings.bgm_volume}%")
         self.volume_item.set_sensitive(False)
         bgm_menu.append(self.volume_item)
-        volume_up_item = Gtk.MenuItem(label="音量を上げる")
+        volume_up_item = Gtk.MenuItem(label="Volume Up")
         volume_up_item.connect("activate", lambda *_: on_volume_up())
         bgm_menu.append(volume_up_item)
-        volume_down_item = Gtk.MenuItem(label="音量を下げる")
+        volume_down_item = Gtk.MenuItem(label="Volume Down")
         volume_down_item.connect("activate", lambda *_: on_volume_down())
         bgm_menu.append(volume_down_item)
         bgm_menu.append(Gtk.SeparatorMenuItem())
-        next_item = Gtk.MenuItem(label="次の曲")
+        next_item = Gtk.MenuItem(label="Next Track")
         next_item.connect("activate", lambda *_: on_next_track())
         bgm_menu.append(next_item)
 
-        quit_item = Gtk.MenuItem(label="終了")
+        quit_item = Gtk.MenuItem(label="Quit")
         quit_item.connect("activate", lambda *_: on_quit())
         menu.append(quit_item)
         menu.show_all()
         self.indicator.set_menu(menu)
 
-    def refresh(self, snapshot: TimerSnapshot, settings: AppSettings) -> None:
+    def refresh(
+        self,
+        snapshot: TimerSnapshot,
+        settings: AppSettings,
+        today_seconds: float,
+    ) -> None:
         self.indicator.set_label(snapshot.label, snapshot.label)
-        self.pause_item.set_label("再開" if snapshot.state.value == "paused" else "停止")
+        if snapshot.state == TimerState.PAUSED:
+            remaining_text = "Paused"
+        elif snapshot.state == TimerState.AWAITING_BREAK:
+            remaining_text = "Take a break!"
+        else:
+            minutes, seconds = divmod(snapshot.remaining_seconds, 60)
+            remaining_text = f"Remaining {minutes:02d}:{seconds:02d}"
+        self.remaining_item.set_label(remaining_text)
+        self.today_item.set_label(f"Today {format_duration(today_seconds)}")
+        self.pause_item.set_label(
+            "Resume" if snapshot.state == TimerState.PAUSED else "Pause"
+        )
         if self.mute_item.get_active() != settings.bgm_muted:
             self.mute_item.set_active(settings.bgm_muted)
-        self.volume_item.set_label(f"音量: {settings.bgm_volume}%")
+        self.volume_item.set_label(f"Volume: {settings.bgm_volume}%")

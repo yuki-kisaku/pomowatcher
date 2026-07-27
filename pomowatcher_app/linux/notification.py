@@ -7,7 +7,12 @@ import subprocess
 class LinuxNotifier:
     def work_limit_reached(self) -> None:
         subprocess.run(
-            ["notify-send", "--urgency=normal", "作業50分経過", "そろそろ休憩しましょう！"],
+            [
+                "notify-send",
+                "--urgency=normal",
+                "50 Minutes Complete",
+                "Time for a break!",
+            ],
             check=False,
         )
         try:

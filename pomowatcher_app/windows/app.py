@@ -19,6 +19,7 @@ if sys.platform != "win32":
     raise SystemExit("このファイルはWindows 11専用です")
 
 from ..app import PomowatcherController
+from ..activity import ActivityLog, format_duration
 from ..bgm import MpvBgmPlayer
 from ..settings import AppSettings, SettingsStore
 from ..sync import StateCoordinator, StateStore, SyncClient
@@ -39,6 +40,7 @@ POLL_INTERVAL_MS = 500
 APP_DIR = Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local")) / "pomowatcher"
 SETTINGS_PATH = APP_DIR / "settings.json"
 STATE_PATH = APP_DIR / "state.json"
+ACTIVITY_PATH = APP_DIR / "activity.sqlite3"
 DEVICE_ID_PATH = APP_DIR / "device-id"
 LOG_PATH = APP_DIR / "pomowatcher.log"
 BGM_DIR = Path.home() / "Music" / "pomodoro-bgm"
@@ -96,6 +98,10 @@ class PomowatcherWindowsApp:
             active_limit_ms=ACTIVE_LIMIT_MS,
             now=time.monotonic(),
         )
+        self.activity = ActivityLog(
+            ACTIVITY_PATH,
+            active_limit_ms=ACTIVE_LIMIT_MS,
+        )
         sync_url = os.environ.get("POMOWATCHER_SYNC_URL", "").strip()
         self.state = StateCoordinator(
             timer=self.timer,
@@ -134,7 +140,7 @@ class PomowatcherWindowsApp:
         self.tray = WindowsTrayIcon(
             "pomowatcher",
             render_tray_icon(TimerState.READY, 0),
-            "Pomowatcher — 残り 50:00",
+            "Remaining 50:00",
             on_menu_requested=self._request_tray_menu,
         )
         self.tray_thread = threading.Thread(
@@ -153,11 +159,11 @@ class PomowatcherWindowsApp:
     def _tray_status_text(self) -> str:
         snapshot = self.timer.snapshot()
         if snapshot.state == TimerState.PAUSED:
-            return "Pomowatcher — 停止中"
+            return "Paused"
         if snapshot.state == TimerState.AWAITING_BREAK:
-            return "Pomowatcher — 休憩してください"
+            return "Take a break!"
         minutes, seconds = divmod(snapshot.remaining_seconds, 60)
-        return f"Pomowatcher — 残り {minutes:02d}:{seconds:02d}"
+        return f"Remaining {minutes:02d}:{seconds:02d}"
 
     def _poll_timer(self) -> None:
         if self._stopping:
@@ -166,6 +172,11 @@ class PomowatcherWindowsApp:
             self.controller.set_other_media_playing(self.media_monitor.is_playing())
             idle_ms = get_idle_ms()
             self.controller.tick(idle_ms=idle_ms, now=time.monotonic())
+            self.activity.update(
+                idle_ms=idle_ms,
+                paused=self.timer.paused,
+                now=time.time(),
+            )
             state_changed = self.state.synchronize(
                 now=time.monotonic(),
                 allow_push=idle_ms <= ACTIVE_LIMIT_MS,
@@ -184,6 +195,7 @@ class PomowatcherWindowsApp:
         self.tray.title = status_text
         self.tray_popup.refresh(
             status_text=status_text,
+            today_text=f"Today {format_duration(self.activity.today_seconds())}",
             paused=self.timer.paused,
             bgm_muted=self.settings.bgm_muted,
             bgm_volume=self.settings.bgm_volume,
@@ -213,8 +225,19 @@ class PomowatcherWindowsApp:
             self._toggle_tray_popup()
         elif action == "reset":
             self.controller.reset(now=time.monotonic())
+            self.activity.update(
+                idle_ms=get_idle_ms(),
+                paused=self.timer.paused,
+                now=time.time(),
+            )
         elif action == "pause":
-            self.controller.toggle_pause(idle_ms=get_idle_ms(), now=time.monotonic())
+            idle_ms = get_idle_ms()
+            self.controller.toggle_pause(idle_ms=idle_ms, now=time.monotonic())
+            self.activity.update(
+                idle_ms=idle_ms,
+                paused=self.timer.paused,
+                now=time.time(),
+            )
         elif action == "mute":
             self.controller.toggle_mute()
         elif action == "volume_up":
@@ -256,6 +279,7 @@ class PomowatcherWindowsApp:
         self.tray_popup.hide()
         self.media_monitor.stop()
         self.bgm.stop()
+        self.activity.close()
         self.state.save_local()
         try:
             self.tray.stop()

@@ -15,6 +15,7 @@ gi.require_version("Gtk", "3.0")
 from gi.repository import Gtk, GLib
 
 from ..app import PomowatcherController
+from ..activity import ActivityLog
 from ..bgm import MpvBgmPlayer
 from ..settings import SettingsStore
 from ..sync import StateCoordinator, StateStore, SyncClient
@@ -34,6 +35,7 @@ MEDIA_INTERVAL_SEC = 2
 
 SETTINGS_PATH = Path.home() / ".config" / "pomowatcher" / "settings.json"
 STATE_PATH = Path.home() / ".local" / "state" / "pomowatcher" / "state.json"
+ACTIVITY_PATH = Path.home() / ".local" / "state" / "pomowatcher" / "activity.sqlite3"
 DEVICE_ID_PATH = Path.home() / ".config" / "pomowatcher" / "device-id"
 BGM_DIR = Path.home() / "Music" / "pomodoro-bgm"
 BGM_FILE_CANDIDATES = tuple(
@@ -65,6 +67,10 @@ class PomoWatcher:
             break_threshold_sec=idle_threshold_sec,
             active_limit_ms=active_limit_ms,
             now=time.monotonic(),
+        )
+        self.activity = ActivityLog(
+            ACTIVITY_PATH,
+            active_limit_ms=active_limit_ms,
         )
         sync_url = os.environ.get("POMOWATCHER_SYNC_URL", "").strip()
         self.state = StateCoordinator(
@@ -114,6 +120,11 @@ class PomoWatcher:
     def _poll(self) -> bool:
         idle_ms = get_idle_ms()
         self.controller.tick(idle_ms=idle_ms, now=time.monotonic())
+        self.activity.update(
+            idle_ms=idle_ms,
+            paused=self.timer.paused,
+            now=time.time(),
+        )
         state_changed = self.state.synchronize(
             now=time.monotonic(),
             allow_push=idle_ms <= self.timer.active_limit_ms,
@@ -139,6 +150,7 @@ class PomoWatcher:
         self.tray.refresh(
             self.timer.snapshot(now=time.monotonic()),
             self.controller.settings,
+            self.activity.today_seconds(),
         )
 
     def _refresh_tray_timer(self) -> bool:
@@ -147,11 +159,22 @@ class PomoWatcher:
 
     def _on_reset(self) -> None:
         self.controller.reset(now=time.monotonic())
+        self.activity.update(
+            idle_ms=get_idle_ms(),
+            paused=self.timer.paused,
+            now=time.time(),
+        )
         self.state.synchronize(now=time.monotonic(), force_push=True)
         self._refresh_tray()
 
     def _on_pause(self) -> None:
-        self.controller.toggle_pause(idle_ms=get_idle_ms(), now=time.monotonic())
+        idle_ms = get_idle_ms()
+        self.controller.toggle_pause(idle_ms=idle_ms, now=time.monotonic())
+        self.activity.update(
+            idle_ms=idle_ms,
+            paused=self.timer.paused,
+            now=time.time(),
+        )
         self.state.synchronize(now=time.monotonic(), force_push=True)
         self._refresh_tray()
 
@@ -198,6 +221,7 @@ class PomoWatcher:
             Gtk.main()
         finally:
             self.bgm.stop()
+            self.activity.close()
 
 
 def main(

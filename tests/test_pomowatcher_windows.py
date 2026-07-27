@@ -26,11 +26,14 @@ class PomowatcherWindowsAppTest(unittest.TestCase):
         )
         app.controller = Mock()
         app.controller.settings = AppSettings(bgm_muted=False, bgm_volume=50)
+        app.activity = Mock()
+        app.activity.today_seconds.return_value = (3 * 60 + 25) * 60
         app.tray_popup = Mock()
         app.tray = Mock()
         app._last_icon_key = None
         return app
 
+    @patch.object(windows_app, "ActivityLog", return_value=Mock())
     @patch.object(windows_app.threading, "Thread", return_value=Mock())
     @patch.object(windows_app, "WindowsMediaMonitor", return_value=Mock())
     @patch.object(windows_app, "WindowsTrayIcon", return_value=Mock())
@@ -49,6 +52,7 @@ class PomowatcherWindowsAppTest(unittest.TestCase):
         _tray_icon: Mock,
         _media_monitor: Mock,
         _thread: Mock,
+        _activity_log: Mock,
     ) -> None:
         settings_store.return_value.load.return_value = AppSettings()
         root = FakeRoot()
@@ -68,7 +72,7 @@ class PomowatcherWindowsAppTest(unittest.TestCase):
         app = self.make_menu_app()
         app.timer.update(idle_ms=0, now=1)
         app.timer.update(idle_ms=0, now=6)
-        self.assertEqual(app._tray_status_text(), "Pomowatcher — 残り 49:55")
+        self.assertEqual(app._tray_status_text(), "Remaining 49:55")
 
     def test_開いているポップアップの残り時間を更新する(self) -> None:
         app = self.make_menu_app()
@@ -78,14 +82,18 @@ class PomowatcherWindowsAppTest(unittest.TestCase):
         app._refresh_view()
         self.assertEqual(
             app.tray_popup.refresh.call_args.kwargs["status_text"],
-            "Pomowatcher — 残り 49:55",
+            "Remaining 49:55",
+        )
+        self.assertEqual(
+            app.tray_popup.refresh.call_args.kwargs["today_text"],
+            "Today 3h 25m",
         )
 
         app.timer.update(idle_ms=0, now=7)
         app._refresh_view()
         self.assertEqual(
             app.tray_popup.refresh.call_args.kwargs["status_text"],
-            "Pomowatcher — 残り 49:54",
+            "Remaining 49:54",
         )
 
     def test_トレイの進捗円は本家と同じ5段階で埋まる(self) -> None:

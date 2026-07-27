@@ -36,7 +36,8 @@ class TrayPopup:
         self.container = tk.Frame(self.window, background=self.BACKGROUND)
         self.container.pack(fill="both", expand=True, padx=1, pady=1)
 
-        self.status_label = self._add_label("Pomowatcher — 残り 50:00")
+        self.status_label = self._add_label("Remaining 50:00")
+        self.today_label = self._add_label("Today 0m")
         self._add_separator()
 
         self.pomodoro_button = self._add_button(
@@ -47,13 +48,13 @@ class TrayPopup:
             self.container,
             background=self.BACKGROUND,
         )
-        self._add_action_button(self.pomodoro_panel, "リセット", "reset")
+        self._add_action_button(self.pomodoro_panel, "Reset", "reset")
         self.pause_button = self._add_action_button(
             self.pomodoro_panel,
-            "停止",
+            "Pause",
             "pause",
         )
-        self._add_action_button(self.pomodoro_panel, "再起動", "restart")
+        self._add_action_button(self.pomodoro_panel, "Restart", "restart")
 
         self.bgm_button = self._add_button("BGM  ›", self._toggle_bgm)
         self.bgm_panel = tk.Frame(
@@ -63,7 +64,7 @@ class TrayPopup:
         self.bgm_muted_var = tk.BooleanVar(master=self.window, value=False)
         mute_button = tk.Checkbutton(
             self.bgm_panel,
-            text="ミュート",
+            text="Mute",
             variable=self.bgm_muted_var,
             command=lambda: self._run_action("mute"),
             anchor="w",
@@ -80,7 +81,7 @@ class TrayPopup:
         mute_button.pack(fill="x")
         self.volume_label = tk.Label(
             self.bgm_panel,
-            text="音量: 50%",
+            text="Volume: 50%",
             anchor="w",
             background=self.BACKGROUND,
             foreground=self.DISABLED_TEXT,
@@ -89,14 +90,14 @@ class TrayPopup:
             pady=5,
         )
         self.volume_label.pack(fill="x")
-        self._add_action_button(self.bgm_panel, "音量を上げる", "volume_up")
-        self._add_action_button(self.bgm_panel, "音量を下げる", "volume_down")
+        self._add_action_button(self.bgm_panel, "Volume Up", "volume_up")
+        self._add_action_button(self.bgm_panel, "Volume Down", "volume_down")
         self._add_separator(self.bgm_panel, padx=22)
-        self._add_action_button(self.bgm_panel, "次の曲", "next_track")
+        self._add_action_button(self.bgm_panel, "Next Track", "next_track")
 
         self._add_separator()
         self._add_button(
-            "終了",
+            "Quit",
             lambda: self._run_action("quit"),
         )
 
@@ -182,14 +183,16 @@ class TrayPopup:
         self,
         *,
         status_text: str,
+        today_text: str,
         paused: bool,
         bgm_muted: bool,
         bgm_volume: int,
     ) -> None:
         self.status_label.configure(text=status_text)
-        self.pause_button.configure(text="再開" if paused else "停止")
+        self.today_label.configure(text=today_text)
+        self.pause_button.configure(text="Resume" if paused else "Pause")
         self.bgm_muted_var.set(bgm_muted)
-        self.volume_label.configure(text=f"音量: {bgm_volume}%")
+        self.volume_label.configure(text=f"Volume: {bgm_volume}%")
 
     def toggle(self) -> None:
         if self.window.state() == "normal":
