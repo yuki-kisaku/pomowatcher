@@ -8,6 +8,9 @@ from enum import Enum
 from typing import Any
 
 
+BREAK_REMINDER_INTERVAL_SEC = 5 * 60
+
+
 class TimerEvent(str, Enum):
     """タイマー更新によって発生する、外部処理が必要な出来事。"""
 
@@ -16,6 +19,7 @@ class TimerEvent(str, Enum):
     IDLE_STARTED = "idle_started"
     BREAK_DETECTED = "break_detected"
     WORK_LIMIT_REACHED = "work_limit_reached"
+    BREAK_REMINDER = "break_reminder"
 
 
 class TimerState(str, Enum):
@@ -50,6 +54,7 @@ class PomodoroTimer:
         break_threshold_sec: int,
         active_limit_ms: int,
         now: float,
+        reminder_interval_sec: int = BREAK_REMINDER_INTERVAL_SEC,
     ) -> None:
         if work_threshold_sec <= 0:
             raise ValueError("work_threshold_sec は正の値にしてください")
@@ -57,15 +62,19 @@ class PomodoroTimer:
             raise ValueError("break_threshold_sec は正の値にしてください")
         if active_limit_ms < 0:
             raise ValueError("active_limit_ms は0以上にしてください")
+        if reminder_interval_sec <= 0:
+            raise ValueError("reminder_interval_sec は正の値にしてください")
 
         self.work_threshold_sec = work_threshold_sec
         self.break_threshold_sec = break_threshold_sec
         self.active_limit_ms = active_limit_ms
+        self.reminder_interval_sec = reminder_interval_sec
         self.active_seconds = 0.0
         self.paused = False
         self.was_on_break = True
         self.awaiting_break = False
         self.is_idle = False
+        self._since_reminder = 0.0
         self._last_update = now
 
     def update(self, *, idle_ms: int, now: float) -> tuple[TimerEvent, ...]:
@@ -84,7 +93,15 @@ class PomodoroTimer:
                 self.active_seconds = 0.0
                 self.awaiting_break = False
                 self.was_on_break = True
+                self._since_reminder = 0.0
                 return (TimerEvent.BREAK_DETECTED,)
+            if self.is_idle:
+                return ()
+            # 休憩せずに作業を続けている間だけ数え、一定時間ごとに通知し直す。
+            self._since_reminder += elapsed
+            if self._since_reminder >= self.reminder_interval_sec:
+                self._since_reminder = 0.0
+                return (TimerEvent.BREAK_REMINDER,)
             return ()
 
         if self.is_idle:
@@ -109,6 +126,7 @@ class PomodoroTimer:
         if self.active_seconds >= self.work_threshold_sec:
             self.active_seconds = float(self.work_threshold_sec)
             self.awaiting_break = True
+            self._since_reminder = 0.0
             events.append(TimerEvent.WORK_LIMIT_REACHED)
 
         return tuple(events)
@@ -121,6 +139,7 @@ class PomodoroTimer:
         self.was_on_break = False
         self.awaiting_break = False
         self.is_idle = False
+        self._since_reminder = 0.0
         self._last_update = now
         return (TimerEvent.WORK_STARTED,)
 
@@ -152,10 +171,14 @@ class PomodoroTimer:
             float(self.work_threshold_sec),
             max(0.0, active_seconds),
         )
+        was_awaiting_break = self.awaiting_break
         self.paused = state.get("paused") is True
         self.was_on_break = state.get("was_on_break") is True
         self.awaiting_break = state.get("awaiting_break") is True
         self.is_idle = state.get("is_idle") is True
+        # 休憩待ちが続いている間は、再通知までの経過時間を引き継ぐ。
+        if not (self.awaiting_break and was_awaiting_break):
+            self._since_reminder = 0.0
         if self.awaiting_break:
             self.active_seconds = float(self.work_threshold_sec)
             self.was_on_break = False

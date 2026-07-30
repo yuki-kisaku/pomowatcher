@@ -4,12 +4,13 @@ from pomowatcher_app.timer import PomodoroTimer, TimerEvent, TimerState
 
 
 class PomodoroTimerTest(unittest.TestCase):
-    def make_timer(self) -> PomodoroTimer:
+    def make_timer(self, *, reminder_interval_sec: int = 300) -> PomodoroTimer:
         return PomodoroTimer(
             work_threshold_sec=100,
             break_threshold_sec=10,
             active_limit_ms=3_000,
             now=0,
+            reminder_interval_sec=reminder_interval_sec,
         )
 
     def test_最初の入力で作業を開始する(self) -> None:
@@ -83,6 +84,35 @@ class PomodoroTimerTest(unittest.TestCase):
         events = timer.update(idle_ms=10_000, now=111)
         self.assertEqual(events, (TimerEvent.BREAK_DETECTED,))
         self.assertEqual(timer.snapshot().state, TimerState.READY)
+
+    def test_休憩せず作業を続けると一定時間ごとに再通知する(self) -> None:
+        timer = self.make_timer(reminder_interval_sec=20)
+        timer.update(idle_ms=0, now=1)
+        timer.update(idle_ms=0, now=101)
+
+        self.assertEqual(timer.update(idle_ms=0, now=115), ())
+        self.assertEqual(timer.update(idle_ms=0, now=121), (TimerEvent.BREAK_REMINDER,))
+        self.assertEqual(timer.update(idle_ms=0, now=135), ())
+        self.assertEqual(timer.update(idle_ms=0, now=141), (TimerEvent.BREAK_REMINDER,))
+        self.assertEqual(timer.snapshot().state, TimerState.AWAITING_BREAK)
+
+    def test_休憩待ち中の離席時間は再通知に数えない(self) -> None:
+        timer = self.make_timer(reminder_interval_sec=20)
+        timer.update(idle_ms=0, now=1)
+        timer.update(idle_ms=0, now=101)
+
+        self.assertEqual(timer.update(idle_ms=5_000, now=141), ())
+        self.assertEqual(timer.update(idle_ms=0, now=151), ())
+        self.assertEqual(timer.update(idle_ms=0, now=161), (TimerEvent.BREAK_REMINDER,))
+
+    def test_休憩を検知したら再通知しない(self) -> None:
+        timer = self.make_timer(reminder_interval_sec=20)
+        timer.update(idle_ms=0, now=1)
+        timer.update(idle_ms=0, now=101)
+        timer.update(idle_ms=10_000, now=111)
+
+        self.assertEqual(timer.update(idle_ms=0, now=112), (TimerEvent.WORK_STARTED,))
+        self.assertEqual(timer.update(idle_ms=0, now=140), ())
 
     def test_手動停止中の時間を加算しない(self) -> None:
         timer = self.make_timer()

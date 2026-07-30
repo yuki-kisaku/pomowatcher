@@ -69,6 +69,9 @@ class PomowatcherController:
                 logging.info("50分到達")
                 self.bgm.stop()
                 self.notify_work_limit()
+            elif event == TimerEvent.BREAK_REMINDER:
+                logging.info("休憩せず作業継続のため再通知")
+                self.notify_work_limit()
 
     def set_other_media_playing(self, playing: bool) -> bool:
         if playing == self.other_media_playing:

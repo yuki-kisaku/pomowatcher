@@ -7,13 +7,18 @@ from pomowatcher_app.timer import PomodoroTimer
 
 
 class PomowatcherControllerTest(unittest.TestCase):
-    def make_controller(self) -> tuple[PomowatcherController, Mock]:
+    def make_controller(
+        self,
+        *,
+        reminder_interval_sec: int = 300,
+    ) -> tuple[PomowatcherController, Mock]:
         bgm = Mock()
         timer = PomodoroTimer(
             work_threshold_sec=100,
             break_threshold_sec=10,
             active_limit_ms=3_000,
             now=0,
+            reminder_interval_sec=reminder_interval_sec,
         )
         controller = PomowatcherController(
             timer=timer,
@@ -23,6 +28,17 @@ class PomowatcherControllerTest(unittest.TestCase):
             notify_work_limit=Mock(),
         )
         return controller, bgm
+
+    def test_休憩せず作業を続けると通知を出し直す(self) -> None:
+        controller, _ = self.make_controller(reminder_interval_sec=20)
+        controller.tick(idle_ms=0, now=1)
+        controller.tick(idle_ms=0, now=101)
+        controller.notify_work_limit.reset_mock()
+
+        controller.tick(idle_ms=0, now=121)
+        controller.tick(idle_ms=0, now=141)
+
+        self.assertEqual(controller.notify_work_limit.call_count, 2)
 
     def test_他メディア再生中は作業を始めてもBGMを再生しない(self) -> None:
         controller, bgm = self.make_controller()
