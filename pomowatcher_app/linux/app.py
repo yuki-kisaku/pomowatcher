@@ -71,6 +71,7 @@ class PomoWatcher:
         self.activity = ActivityLog(
             ACTIVITY_PATH,
             active_limit_ms=active_limit_ms,
+            gap_limit_sec=check_interval_sec * 3,
         )
         sync_url = os.environ.get("POMOWATCHER_SYNC_URL", "").strip()
         self.state = StateCoordinator(

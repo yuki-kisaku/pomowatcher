@@ -19,17 +19,26 @@ class ActivityLogTest(unittest.TestCase):
             activity.close()
         self.temporary_directory.cleanup()
 
-    def make_log(self, *, now: float | None = None) -> ActivityLog:
+    def make_log(
+        self,
+        *,
+        now: float | None = None,
+        gap_limit_sec: float | None = None,
+    ) -> ActivityLog:
+        kwargs = {}
+        if gap_limit_sec is not None:
+            kwargs["gap_limit_sec"] = gap_limit_sec
         activity = ActivityLog(
             self.database_path,
             active_limit_ms=30_000,
             now=self.base_time if now is None else now,
+            **kwargs,
         )
         self.logs.append(activity)
         return activity
 
     def test_操作中の区間を日別に合計する(self) -> None:
-        activity = self.make_log()
+        activity = self.make_log(gap_limit_sec=60)
         activity.update(idle_ms=0, paused=False, now=self.base_time)
 
         self.assertEqual(activity.today_seconds(now=self.base_time + 10), 10)
@@ -39,7 +48,7 @@ class ActivityLogTest(unittest.TestCase):
         activity.close(now=self.base_time + 40)
 
     def test_休憩後は新しい作業区間として記録する(self) -> None:
-        activity = self.make_log()
+        activity = self.make_log(gap_limit_sec=60)
         activity.update(idle_ms=0, paused=False, now=self.base_time)
         activity.update(idle_ms=40_000, paused=False, now=self.base_time + 40)
         activity.update(idle_ms=0, paused=False, now=self.base_time + 100)
@@ -86,6 +95,25 @@ class ActivityLogTest(unittest.TestCase):
 
         self.assertEqual(activity.day_seconds(day, now=midnight + 2), 2)
         activity.close(now=midnight + 2)
+
+    def test_更新が長く止まった区間を作業時間に含めない(self) -> None:
+        activity = self.make_log()
+        activity.update(idle_ms=0, paused=False, now=self.base_time)
+        activity.update(idle_ms=0, paused=False, now=self.base_time + 10)
+
+        # スリープ等で1時間止まったあと、操作ありで再開する
+        activity.update(idle_ms=0, paused=False, now=self.base_time + 3_610)
+
+        self.assertEqual(activity.today_seconds(now=self.base_time + 3_620), 20)
+        activity.close(now=self.base_time + 3_620)
+
+    def test_しきい値以内の更新間隔なら区間を分割しない(self) -> None:
+        activity = self.make_log(gap_limit_sec=60)
+        activity.update(idle_ms=0, paused=False, now=self.base_time)
+        activity.update(idle_ms=0, paused=False, now=self.base_time + 30)
+
+        self.assertEqual(activity.today_seconds(now=self.base_time + 30), 30)
+        activity.close(now=self.base_time + 30)
 
     def test_終了済みの作業区間を再起動後も集計できる(self) -> None:
         activity = self.make_log()

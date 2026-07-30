@@ -9,6 +9,7 @@ import time
 
 
 HEARTBEAT_INTERVAL_SEC = 5
+DEFAULT_GAP_LIMIT_SEC = HEARTBEAT_INTERVAL_SEC * 3
 
 
 class ActivityLog:
@@ -19,13 +20,17 @@ class ActivityLog:
         path: Path,
         *,
         active_limit_ms: int,
+        gap_limit_sec: float = DEFAULT_GAP_LIMIT_SEC,
         now: float | None = None,
     ) -> None:
         if active_limit_ms < 0:
             raise ValueError("active_limit_ms は0以上にしてください")
+        if gap_limit_sec <= 0:
+            raise ValueError("gap_limit_sec は0より大きくしてください")
 
         path.parent.mkdir(parents=True, exist_ok=True)
         self.active_limit_ms = active_limit_ms
+        self.gap_limit_sec = gap_limit_sec
         self._connection = sqlite3.connect(path)
         self._connection.execute(
             """
@@ -56,6 +61,16 @@ class ActivityLog:
         current = time.time() if now is None else now
         idle_ms = max(0, idle_ms)
         is_active = not paused and idle_ms <= self.active_limit_ms
+
+        # 前回の更新から間隔が空きすぎている場合はスリープ等で
+        # アプリが止まっていたとみなし、その間を作業時間に含めない
+        if (
+            self._active_session_id is not None
+            and self._last_sample_at is not None
+            and current - self._last_sample_at > self.gap_limit_sec
+        ):
+            self._set_active_session_end(self._last_sample_at)
+            self._active_session_id = None
 
         if is_active:
             if self._active_session_id is None:
