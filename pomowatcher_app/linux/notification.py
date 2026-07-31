@@ -9,10 +9,7 @@ class LinuxNotifier:
         self._show("50 Minutes Complete", "Time for a break!")
 
     def break_reminder(self) -> None:
-        self._show(
-            "Still Working?",
-            "You've been working over 50 minutes. Take a break!",
-        )
+        self._show("Over 50 Minutes", "Take a break!")
 
     def _show(self, title: str, body: str) -> None:
         subprocess.run(
