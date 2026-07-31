@@ -64,6 +64,7 @@ class PomowatcherMacApp(rumps.App):
             device_id_path=DEVICE_ID_PATH,
             now=time.monotonic(),
         )
+        notifier = MacNotifier()
         self.controller = PomowatcherController(
             timer=self.timer,
             bgm=MpvBgmPlayer(
@@ -75,7 +76,8 @@ class PomowatcherMacApp(rumps.App):
             ),
             settings=settings,
             save_settings=store.save,
-            notify_work_limit=MacNotifier().work_limit_reached,
+            notify_work_limit=notifier.work_limit_reached,
+            notify_break_reminder=notifier.break_reminder,
         )
         self.controller.reconcile_timer_state()
         self.remaining_item = rumps.MenuItem("Remaining 50:00")

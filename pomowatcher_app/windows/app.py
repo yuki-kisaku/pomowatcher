@@ -127,6 +127,7 @@ class PomowatcherWindowsApp:
             settings=settings,
             save_settings=self.settings_store.save,
             notify_work_limit=self.notifier.work_limit_reached,
+            notify_break_reminder=self.notifier.break_reminder,
         )
         self.controller.reconcile_timer_state()
         self.media_monitor = WindowsMediaMonitor()

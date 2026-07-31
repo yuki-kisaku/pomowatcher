@@ -26,6 +26,7 @@ class PomowatcherControllerTest(unittest.TestCase):
             settings=AppSettings(),
             save_settings=Mock(),
             notify_work_limit=Mock(),
+            notify_break_reminder=Mock(),
         )
         return controller, bgm
 
@@ -38,7 +39,8 @@ class PomowatcherControllerTest(unittest.TestCase):
         controller.tick(idle_ms=0, now=121)
         controller.tick(idle_ms=0, now=141)
 
-        self.assertEqual(controller.notify_work_limit.call_count, 2)
+        controller.notify_work_limit.assert_not_called()
+        self.assertEqual(controller.notify_break_reminder.call_count, 2)
 
     def test_他メディア再生中は作業を始めてもBGMを再生しない(self) -> None:
         controller, bgm = self.make_controller()

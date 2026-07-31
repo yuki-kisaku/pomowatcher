@@ -91,12 +91,14 @@ class PomoWatcher:
             muted=settings.bgm_muted,
             volume=settings.bgm_volume,
         )
+        notifier = LinuxNotifier()
         self.controller = PomowatcherController(
             timer=self.timer,
             bgm=self.bgm,
             settings=settings,
             save_settings=self.settings_store.save,
-            notify_work_limit=LinuxNotifier().work_limit_reached,
+            notify_work_limit=notifier.work_limit_reached,
+            notify_break_reminder=notifier.break_reminder,
         )
         self.controller.reconcile_timer_state()
         self.media_monitor = MprisMediaMonitor(lambda: self.bgm.process_id)

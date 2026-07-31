@@ -35,12 +35,14 @@ class PomowatcherController:
         settings: AppSettings,
         save_settings: Callable[[AppSettings], None],
         notify_work_limit: Callable[[], None],
+        notify_break_reminder: Callable[[], None],
     ) -> None:
         self.timer = timer
         self.bgm = bgm
         self.settings = settings
         self.save_settings = save_settings
         self.notify_work_limit = notify_work_limit
+        self.notify_break_reminder = notify_break_reminder
         self.other_media_playing = False
 
     def tick(self, *, idle_ms: int, now: float) -> tuple[TimerEvent, ...]:
@@ -71,7 +73,7 @@ class PomowatcherController:
                 self.notify_work_limit()
             elif event == TimerEvent.BREAK_REMINDER:
                 logging.info("休憩せず作業継続のため再通知")
-                self.notify_work_limit()
+                self.notify_break_reminder()
 
     def set_other_media_playing(self, playing: bool) -> bool:
         if playing == self.other_media_playing:
