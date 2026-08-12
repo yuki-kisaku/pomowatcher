@@ -25,7 +25,7 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1
 ## 表示と操作
 
 - `○ 50:00`から作業時間に合わせて残り時間が減ります。
-- 50分になるとWindows通知と通知音で休憩を促します。
+- 50分になるとWindows通知と通知音（`Alarm03.wav`）で休憩を促します。通知音はmpvで鳴らすため、Windowsのシステム音より大きくできます。
 - そのまま休憩せず操作を続けている場合は、5分ごとに同じ通知を出し直します。
 - 10分間操作しないと休憩完了と判断し、次の50分へ戻ります。
 - 通知領域のPomowatcherアイコンを左クリックまたは右クリックすると、リセット、停止、再起動、BGM操作、終了ができます。
@@ -43,6 +43,9 @@ YouTubeからBGMを取得するコマンドはWindows版に含まれません。
 
 - 設定: `%LOCALAPPDATA%\pomowatcher\settings.json`
 - ログ: `%LOCALAPPDATA%\pomowatcher\pomowatcher.log`
+
+通知音の大きさは`settings.json`の`notify_volume`で変えられます（0〜200、初期値90）。
+変更はPomowatcherを再起動すると反映されます。
 
 ## 自動起動を解除する
 

@@ -120,7 +120,7 @@ class PomowatcherWindowsApp:
             muted=settings.bgm_muted,
             volume=settings.bgm_volume,
         )
-        self.notifier = WindowsNotifier()
+        self.notifier = WindowsNotifier(settings.notify_volume)
         self.controller = PomowatcherController(
             timer=self.timer,
             bgm=self.bgm,

@@ -4,6 +4,7 @@ from unittest.mock import Mock, patch
 from pomowatcher_app.settings import AppSettings
 from pomowatcher_app.timer import PomodoroTimer, TimerState
 from pomowatcher_app.windows import app as windows_app
+from pomowatcher_app.windows import notification as windows_notification
 from pomowatcher_app.windows import tray as windows_tray
 
 
@@ -138,6 +139,35 @@ class PomowatcherWindowsAppTest(unittest.TestCase):
             icon._on_notify(0, windows_tray.pystray_win32.WM_RBUTTONUP)
         icon._on_menu_requested.assert_called_once_with()
         notify.assert_not_called()
+
+
+class WindowsNotifierTest(unittest.TestCase):
+    def make_notifier(self, volume: int) -> windows_notification.WindowsNotifier:
+        notifier = windows_notification.WindowsNotifier.__new__(
+            windows_notification.WindowsNotifier
+        )
+        notifier._toaster = Mock()
+        notifier.volume = volume
+        return notifier
+
+    def test_設定した音量で通知音を鳴らす(self) -> None:
+        notifier = self.make_notifier(90)
+        with patch.object(
+            windows_notification, "find_mpv_executable", return_value="mpv.exe"
+        ), patch.object(windows_notification.subprocess, "Popen") as popen:
+            notifier.work_limit_reached()
+        command = popen.call_args.args[0]
+        self.assertIn("--volume=90", command)
+        self.assertEqual(command[-1], str(windows_notification.SOUND_PATH))
+
+    def test_トースト自体は無音にする(self) -> None:
+        notifier = self.make_notifier(90)
+        with patch.object(
+            windows_notification, "find_mpv_executable", return_value=None
+        ):
+            notifier.break_reminder()
+        toast = notifier._toaster.show_toast.call_args.args[0]
+        self.assertTrue(toast.audio.silent)
 
 
 if __name__ == "__main__":

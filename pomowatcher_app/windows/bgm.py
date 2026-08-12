@@ -12,38 +12,36 @@ import time
 import winreg
 
 
+def find_mpv_executable() -> str | None:
+    command = shutil.which("mpv")
+    if command is not None:
+        return command
+    registry_path = r"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\mpv.exe"
+    for root in (winreg.HKEY_CURRENT_USER, winreg.HKEY_LOCAL_MACHINE):
+        try:
+            with winreg.OpenKey(root, registry_path) as key:
+                value, _ = winreg.QueryValueEx(key, None)
+        except OSError:
+            continue
+        if value and Path(value).is_file():
+            return str(value)
+    candidates = (
+        Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "mpv" / "mpv.exe",
+        Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "MPV Player" / "mpv.exe",
+        Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "mpv" / "mpv.exe",
+    )
+    for candidate in candidates:
+        if candidate.is_file():
+            return str(candidate)
+    return None
+
+
 class WindowsMpvAdapter:
     def __init__(self) -> None:
         self.pipe_path = rf"\\.\pipe\pomowatcher-mpv-{os.getpid()}"
 
-    @staticmethod
-    def _find_executable() -> str | None:
-        command = shutil.which("mpv")
-        if command is not None:
-            return command
-        registry_path = r"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\mpv.exe"
-        for root in (winreg.HKEY_CURRENT_USER, winreg.HKEY_LOCAL_MACHINE):
-            try:
-                with winreg.OpenKey(root, registry_path) as key:
-                    value, _ = winreg.QueryValueEx(key, None)
-            except OSError:
-                continue
-            if value and Path(value).is_file():
-                return str(value)
-        candidates = (
-            Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "mpv" / "mpv.exe",
-            Path(os.environ.get("ProgramFiles", r"C:\Program Files"))
-            / "MPV Player"
-            / "mpv.exe",
-            Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "mpv" / "mpv.exe",
-        )
-        for candidate in candidates:
-            if candidate.is_file():
-                return str(candidate)
-        return None
-
     def launch(self, *, kind: str, path: Path, volume: int) -> subprocess.Popen[bytes]:
-        executable = self._find_executable()
+        executable = find_mpv_executable()
         if executable is None:
             raise FileNotFoundError("mpvが見つかりません。install.ps1を再実行してください")
         command = [
